@@ -29,7 +29,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xorriso squashfs-tools e2fsprogs rsync curl util-linux
+            xorriso erofs-utils e2fsprogs rsync curl util-linux
+          mkfs.erofs --version || true
+          fsck.erofs --version || true
 
       - name: Validate source before expensive build
         run: |
