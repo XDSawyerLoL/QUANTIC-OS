@@ -9,24 +9,40 @@ BASE_URL="${FEDORA_BASE_URL:-https://download.fedoraproject.org/pub/fedora/linux
 BASE_SHA256="c8295961d4c41adbf785a31a17c21a971d3b7415fda72dcad0c11c49577bf03a"
 OUT_ISO="$OUT_DIR/Quantic-OS-V1.2-Live-x86_64.iso"
 
-SQUASH_ORIG="$WORK/squashfs.img"
-SQUASH_TREE="$WORK/squashfs-root"
-SQUASH_NEW="$WORK/squashfs-quantic.img"
-ROOT_MNT="$WORK/rootfs-mnt"
+# Fedora keeps the historical filename /LiveOS/squashfs.img, but Fedora 42+
+# KDE live media stores an EROFS filesystem in that file. Do not run
+# unsquashfs against it.
+EROFS_ORIG="$WORK/liveos-original.erofs"
+EROFS_NEW="$WORK/liveos-quantic.erofs"
+ROOT_TREE="$WORK/root-tree"
+SRC_MNT="$WORK/source-mnt"
+VERIFY_MNT="$WORK/verify-mnt"
+VERIFY_IMG="$WORK/verify-liveos.erofs"
 QBUILD="$WORK/qbuild"
-MOUNTED=0
+SRC_MOUNTED=0
+VERIFY_MOUNTED=0
 
 cleanup() {
-  if [[ "$MOUNTED" == 1 ]]; then
-    sudo umount "$ROOT_MNT" || true
+  if [[ "$VERIFY_MOUNTED" == 1 ]]; then
+    sudo umount "$VERIFY_MNT" || true
+  fi
+  if [[ "$SRC_MOUNTED" == 1 ]]; then
+    sudo umount "$SRC_MNT" || true
   fi
 }
 trap cleanup EXIT
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 2; }; }
-for cmd in curl sha256sum xorriso unsquashfs mksquashfs mount umount docker rsync findmnt blkid; do need "$cmd"; done
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required command: $1" >&2
+    exit 2
+  }
+}
+for cmd in curl sha256sum xorriso mount umount docker rsync blkid mkfs.erofs fsck.erofs; do
+  need "$cmd"
+done
 
-mkdir -p "$WORK" "$OUT_DIR" "$ROOT_MNT"
+mkdir -p "$WORK" "$OUT_DIR" "$SRC_MNT" "$VERIFY_MNT"
 
 echo '[1/8] Building Quantic Home against Fedora 44 Qt 6'
 rm -rf "$QBUILD"
@@ -48,40 +64,50 @@ if [[ ! -f "$BASE_ISO" ]]; then
 fi
 echo "$BASE_SHA256  $BASE_ISO" | sha256sum -c -
 
-echo '[3/8] Extracting Fedora LiveOS payload'
-rm -rf "$SQUASH_TREE" "$SQUASH_NEW"
-xorriso -osirrox on -indev "$BASE_ISO" -extract /LiveOS/squashfs.img "$SQUASH_ORIG" >/dev/null 2>&1
-unsquashfs -d "$SQUASH_TREE" "$SQUASH_ORIG" >/dev/null
-ROOTFS_IMG="$SQUASH_TREE/LiveOS/rootfs.img"
-[[ -f "$ROOTFS_IMG" ]] || { echo 'Fedora LiveOS/rootfs.img not found in squashfs payload' >&2; exit 3; }
+echo '[3/8] Extracting and identifying Fedora LiveOS EROFS payload'
+rm -f "$EROFS_ORIG" "$EROFS_NEW" "$VERIFY_IMG"
+rm -rf "$ROOT_TREE"
+xorriso -osirrox on -indev "$BASE_ISO" \
+  -extract /LiveOS/squashfs.img "$EROFS_ORIG" >/dev/null 2>&1
 
-FSTYPE=$(blkid -o value -s TYPE "$ROOTFS_IMG" || true)
-echo "Root filesystem image type: ${FSTYPE:-unknown}"
+LIVEOS_TYPE=$(blkid -o value -s TYPE "$EROFS_ORIG" || true)
+echo "Fedora LiveOS payload type: ${LIVEOS_TYPE:-unknown}"
+if [[ "$LIVEOS_TYPE" != "erofs" ]]; then
+  echo "Expected Fedora 44 LiveOS payload to be EROFS, got '${LIVEOS_TYPE:-unknown}'" >&2
+  exit 3
+fi
+fsck.erofs "$EROFS_ORIG" >/dev/null
 
-echo '[4/8] Mounting and injecting Quantic'
-sudo mount -o loop,rw "$ROOTFS_IMG" "$ROOT_MNT"
-MOUNTED=1
+echo '[4/8] Copying EROFS root tree and injecting Quantic'
+sudo mount -t erofs -o loop,ro "$EROFS_ORIG" "$SRC_MNT"
+SRC_MOUNTED=1
+sudo mkdir -p "$ROOT_TREE"
+# Preserve ownership, hardlinks, ACLs and xattrs (including SELinux labels).
+sudo rsync -aHAX --numeric-ids "$SRC_MNT/" "$ROOT_TREE/"
+sudo umount "$SRC_MNT"
+SRC_MOUNTED=0
 
-sudo install -D -m 0755 "$QBUILD/quantic-home" "$ROOT_MNT/usr/libexec/quantic-home"
-sudo install -D -m 0644 "$ROOT/shell/autostart/quantic-home.desktop" "$ROOT_MNT/etc/xdg/autostart/quantic-home.desktop"
-sudo mkdir -p "$ROOT_MNT/usr/lib/quantic/services" "$ROOT_MNT/etc/quantic"
-sudo rsync -a "$ROOT/services/" "$ROOT_MNT/usr/lib/quantic/services/"
-sudo rsync -a "$ROOT/config/" "$ROOT_MNT/etc/quantic/"
-sudo chmod 0755 "$ROOT_MNT/usr/lib/quantic/services/"*.sh 2>/dev/null || true
+sudo install -D -m 0755 "$QBUILD/quantic-home" "$ROOT_TREE/usr/libexec/quantic-home"
+sudo install -D -m 0644 "$ROOT/shell/autostart/quantic-home.desktop" \
+  "$ROOT_TREE/etc/xdg/autostart/quantic-home.desktop"
+sudo mkdir -p "$ROOT_TREE/usr/lib/quantic/services" "$ROOT_TREE/etc/quantic"
+sudo rsync -a "$ROOT/services/" "$ROOT_TREE/usr/lib/quantic/services/"
+sudo rsync -a "$ROOT/config/" "$ROOT_TREE/etc/quantic/"
+sudo chmod 0755 "$ROOT_TREE/usr/lib/quantic/services/"*.sh 2>/dev/null || true
 
-# Only the early Live USB disk guard is enabled here. Other Quantic services
-# stay on disk but cannot make a first hardware boot fail.
+# Only the early Live USB disk guard is enabled in the first hardware image.
+# Other Quantic services stay present but cannot block desktop boot.
 sudo install -D -m 0644 "$ROOT/systemd/quantic-usb-safe.service" \
-  "$ROOT_MNT/usr/lib/systemd/system/quantic-usb-safe.service"
-sudo mkdir -p "$ROOT_MNT/etc/systemd/system/local-fs.target.wants"
+  "$ROOT_TREE/usr/lib/systemd/system/quantic-usb-safe.service"
+sudo mkdir -p "$ROOT_TREE/etc/systemd/system/local-fs.target.wants"
 sudo ln -sfn /usr/lib/systemd/system/quantic-usb-safe.service \
-  "$ROOT_MNT/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
+  "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
 
-# V1.2 is Live-only. Keep Fedora's proven kernel/initramfs/UEFI chain and hide
-# installer launchers rather than turning this test image into an installer.
-sudo mkdir -p "$ROOT_MNT/usr/local/share/applications"
+# V1.2 is Live-only. Hide installer entry points rather than modifying Fedora's
+# proven kernel, initramfs, shim or GRUB chain.
+sudo mkdir -p "$ROOT_TREE/usr/local/share/applications"
 for desktop_id in liveinst.desktop org.fedoraproject.AnacondaInstaller.desktop org.fedoraproject.Anaconda.desktop; do
-  sudo tee "$ROOT_MNT/usr/local/share/applications/$desktop_id" >/dev/null <<EOF
+  sudo tee "$ROOT_TREE/usr/local/share/applications/$desktop_id" >/dev/null <<EOF
 [Desktop Entry]
 Type=Application
 Name=Installer disabled in Quantic Live
@@ -90,14 +116,17 @@ NoDisplay=true
 EOF
 done
 
-sudo tee "$ROOT_MNT/etc/quantic-release" >/dev/null <<'EOF'
+sudo tee "$ROOT_TREE/etc/quantic-release" >/dev/null <<'EOF'
 NAME="Quantic OS"
 VERSION="1.2 Live"
 BASE="Fedora KDE Plasma Desktop 44"
-BUILD_STRATEGY="verified-fedora-remaster"
+BUILD_STRATEGY="verified-fedora-erofs-remaster"
 EOF
 
-sudo chroot "$ROOT_MNT" /sbin/restorecon -RF \
+# Re-label only injected paths using the Fedora policy contained in the live
+# root. If chroot restorecon is unavailable in CI, preserved original xattrs
+# remain intact and this step is intentionally non-fatal.
+sudo chroot "$ROOT_TREE" /sbin/restorecon -RF \
   /usr/libexec/quantic-home \
   /etc/xdg/autostart/quantic-home.desktop \
   /usr/lib/quantic \
@@ -105,12 +134,18 @@ sudo chroot "$ROOT_MNT" /sbin/restorecon -RF \
   /usr/lib/systemd/system/quantic-usb-safe.service \
   /usr/local/share/applications 2>/dev/null || true
 
-sync
-sudo umount "$ROOT_MNT"
-MOUNTED=0
+# Prove the injected payload exists before spending time recompressing it.
+test -x "$ROOT_TREE/usr/libexec/quantic-home"
+test -f "$ROOT_TREE/etc/quantic-release"
+test -L "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
 
-echo '[5/8] Repacking LiveOS squashfs'
-mksquashfs "$SQUASH_TREE" "$SQUASH_NEW" -noappend -comp zstd -b 1M >/dev/null
+echo '[5/8] Repacking Fedora LiveOS as EROFS'
+# Ubuntu 24.04 ships erofs-utils 1.7.1. These options are supported there and
+# keep compatibility with Fedora's EROFS live boot support while giving a
+# reasonably compact image without relying on newer-only fragdedupe options.
+sudo mkfs.erofs -zlzma,6 -Eall-fragments -C1048576 \
+  "$EROFS_NEW" "$ROOT_TREE" >/dev/null
+fsck.erofs "$EROFS_NEW" >/dev/null
 
 echo '[6/8] Replaying Fedora boot metadata and replacing only LiveOS payload'
 rm -f "$OUT_ISO"
@@ -118,19 +153,29 @@ xorriso \
   -indev "$BASE_ISO" \
   -outdev "$OUT_ISO" \
   -boot_image any replay \
-  -map "$SQUASH_NEW" /LiveOS/squashfs.img \
+  -map "$EROFS_NEW" /LiveOS/squashfs.img \
   -commit >/dev/null 2>&1
 
-echo '[7/8] Structural validation'
+echo '[7/8] Structural and payload validation'
 test -s "$OUT_ISO"
 xorriso -indev "$OUT_ISO" -report_el_torito plain > "$WORK/el-torito.txt" 2>&1
 grep -Eqi 'UEFI|EFI|El Torito' "$WORK/el-torito.txt"
-xorriso -osirrox on -indev "$OUT_ISO" -extract /LiveOS/squashfs.img "$WORK/verify-squashfs.img" >/dev/null 2>&1
-unsquashfs -s "$WORK/verify-squashfs.img" >/dev/null
+xorriso -osirrox on -indev "$OUT_ISO" \
+  -extract /LiveOS/squashfs.img "$VERIFY_IMG" >/dev/null 2>&1
+[[ "$(blkid -o value -s TYPE "$VERIFY_IMG" || true)" == "erofs" ]]
+fsck.erofs "$VERIFY_IMG" >/dev/null
+
+sudo mount -t erofs -o loop,ro "$VERIFY_IMG" "$VERIFY_MNT"
+VERIFY_MOUNTED=1
+test -x "$VERIFY_MNT/usr/libexec/quantic-home"
+grep -q 'verified-fedora-erofs-remaster' "$VERIFY_MNT/etc/quantic-release"
+test -L "$VERIFY_MNT/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
+sudo umount "$VERIFY_MNT"
+VERIFY_MOUNTED=0
 
 sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"
 
 echo '[8/8] Done'
 ls -lh "$OUT_ISO" "$OUT_ISO.sha256"
 echo "Built: $OUT_ISO"
-echo 'NOTE: structural build validation is not a physical HP OMEN boot certification.'
+echo 'NOTE: build + structural validation passed; physical HP OMEN certification is still separate.'
