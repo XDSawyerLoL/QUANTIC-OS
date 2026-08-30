@@ -1,0 +1,6 @@
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") === 0) {
+        var drive = action.lookup("drive.removable");
+        if (drive === "false") return polkit.Result.NO;
+    }
+});

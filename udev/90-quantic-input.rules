@@ -1,0 +1,2 @@
+# Quantic does not bypass libinput. This rule only tags input devices for diagnostics.
+SUBSYSTEM=="input", ENV{ID_INPUT}=="1", TAG+="quantic-input"

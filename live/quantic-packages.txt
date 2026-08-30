@@ -1,0 +1,17 @@
+quantic-shell
+quantic-services
+quantic-theme
+ollama
+python3-ollama
+wine
+winetricks
+gamemode
+mangohud
+bubblewrap
+smartmontools
+lm_sensors
+pciutils
+usbutils
+vulkan-tools
+-anaconda
+-liveinst

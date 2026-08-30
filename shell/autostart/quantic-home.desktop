@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Quantic Home
+Exec=/usr/libexec/quantic-home
+Icon=system-run
+X-KDE-autostart-after=panel
+X-KDE-StartupNotify=false
+OnlyShowIn=KDE;

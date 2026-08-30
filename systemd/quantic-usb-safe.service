@@ -1,0 +1,19 @@
+[Unit]
+Description=Quantic Live USB internal-disk protection
+DefaultDependencies=no
+After=systemd-udevd.service local-fs-pre.target
+Before=udisks2.service
+ConditionKernelCommandLine=|rd.live.image
+ConditionKernelCommandLine=|quantic.live=1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/quantic/services/qusb_safe.sh
+RemainAfterExit=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=local-fs.target

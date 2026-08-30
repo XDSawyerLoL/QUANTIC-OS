@@ -1,0 +1,15 @@
+[Unit]
+Description=Quantic Resource observer
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qresource.py --watch 5
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

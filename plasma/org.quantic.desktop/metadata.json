@@ -1,0 +1,4 @@
+{
+  "KPlugin": {"Id":"org.quantic.desktop","Name":"Quantic","Description":"Quantic OS desktop defaults","Version":"1.1","License":"MIT","Authors":[{"Name":"Quantic OS"}]},
+  "KPackageStructure":"Plasma/LookAndFeel"
+}

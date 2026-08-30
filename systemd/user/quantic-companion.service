@@ -1,0 +1,15 @@
+[Unit]
+Description=Quantic Companion local initiative service
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qcompanion_daemon.py
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=%h/.local/share/quantic
+
+[Install]
+WantedBy=default.target

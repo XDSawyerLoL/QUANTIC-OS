@@ -1,0 +1,44 @@
+name: Build Quantic Live ISO
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          docker system prune -af || true
+          df -h
+      - name: Static foundation checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          bash -n scripts/*.sh services/*.sh
+          python3 -m py_compile services/*.py scripts/*.py
+      - name: Build Fedora 44 Live ISO
+        run: |
+          docker run --rm --privileged -v "$PWD:/workspace" -w /workspace fedora:44 bash -lc '
+            set -euxo pipefail
+            dnf -y install livecd-tools spin-kickstarts pykickstart rpm-build createrepo_c gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel git rsync findutils tar gzip sudo
+            chmod +x scripts/*.sh scripts/*.py services/*.sh
+            scripts/build-rpms.sh
+            test -n "$(find build/rpms -maxdepth 1 -name '*.rpm' -print -quit)"
+            scripts/build-live-iso.sh
+          '
+      - name: Verify artifact
+        run: |
+          test -s build/live/Quantic-OS-V1.1-Live-x86_64.iso
+          sha256sum -c build/live/Quantic-OS-V1.1-Live-x86_64.iso.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quantic-OS-V1.1-Live-x86_64
+          path: |
+            build/live/Quantic-OS-V1.1-Live-x86_64.iso
+            build/live/Quantic-OS-V1.1-Live-x86_64.iso.sha256
+          retention-days: 14

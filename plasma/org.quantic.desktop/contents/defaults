@@ -1,0 +1,6 @@
+[kdeglobals][General]
+ColorScheme=BreezeDark
+
+[kwinrc][org.kde.kdecoration2]
+ButtonsOnLeft=
+ButtonsOnRight=IAX

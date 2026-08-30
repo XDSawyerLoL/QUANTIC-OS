@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Quantic Companion Service
+Exec=systemctl --user start quantic-companion.service
+X-KDE-autostart-after=panel
+X-KDE-StartupNotify=false
+OnlyShowIn=KDE;
+NoDisplay=true

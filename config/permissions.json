@@ -1,0 +1,24 @@
+{
+  "allow": [
+    "resource.optimize",
+    "resource.rebalance",
+    "cache.maintain",
+    "security.isolate_suspicious_process",
+    "notify.local",
+    "update.noncritical_reversible"
+  ],
+  "ask": [
+    "files.delete_user_data",
+    "files.move_outside_workspace",
+    "messages.send_external",
+    "purchase",
+    "credentials.change",
+    "camera.enable",
+    "microphone.enable"
+  ],
+  "deny": [
+    "security.disable",
+    "update.bypass_guardian",
+    "boot.disable_rollback"
+  ]
+}
