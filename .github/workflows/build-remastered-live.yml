@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: quantic-v1-remaster-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   remaster:
     runs-on: ubuntu-latest
@@ -34,7 +38,7 @@ jobs:
           bash -n scripts/*.sh services/*.sh
           python3 -m py_compile services/*.py scripts/*.py
 
-      - name: Remaster verified Fedora KDE 44 ISO
+      - name: Compile Quantic and remaster verified Fedora KDE 44 ISO
         run: |
           chmod +x scripts/remaster-fedora-kde.sh
           scripts/remaster-fedora-kde.sh
@@ -51,11 +55,17 @@ jobs:
           split -b 1800M -d -a 2 Quantic-OS-V1.2-Live-x86_64.iso Quantic-OS-V1.2-Live-x86_64.iso.part-
           sha256sum Quantic-OS-V1.2-Live-x86_64.iso.part-* > Quantic-OS-V1.2-Live-x86_64.parts.sha256
           cat > REASSEMBLE-WINDOWS.txt <<'EOF'
-          Put all .part-* files in the same folder, then run in Windows Command Prompt:
-          copy /b Quantic-OS-V1.2-Live-x86_64.iso.part-00+Quantic-OS-V1.2-Live-x86_64.iso.part-01+Quantic-OS-V1.2-Live-x86_64.iso.part-02 Quantic-OS-V1.2-Live-x86_64.iso
+          Put all .part-* files in the same folder. In Windows PowerShell, run:
+          $parts = Get-ChildItem 'Quantic-OS-V1.2-Live-x86_64.iso.part-*' | Sort-Object Name
+          $out = [System.IO.File]::Create('Quantic-OS-V1.2-Live-x86_64.iso')
+          foreach ($part in $parts) {
+            $bytes = [System.IO.File]::ReadAllBytes($part.FullName)
+            $out.Write($bytes, 0, $bytes.Length)
+          }
+          $out.Close()
+          Get-FileHash .\Quantic-OS-V1.2-Live-x86_64.iso -Algorithm SHA256
 
-          If only part-00 and part-01 exist, omit +part-02.
-          Then verify the final ISO against Quantic-OS-V1.2-Live-x86_64.iso.sha256 before flashing it.
+          Compare the result with Quantic-OS-V1.2-Live-x86_64.iso.sha256 before flashing.
           EOF
           ls -lh Quantic-OS-V1.2-Live-x86_64.iso.part-*
 
