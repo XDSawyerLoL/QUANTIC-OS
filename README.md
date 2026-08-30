@@ -2,6 +2,8 @@
 
 Quantic OS is now built as a **Fedora KDE 44 Live USB product**, not a custom framebuffer shell.
 
+Official repository: `XDSawyerLoL/QUANTIC-OS`.
+
 ## Product stack
 - Fedora KDE 44 Live base
 - Plasma 6 + KWin + Wayland
@@ -19,7 +21,7 @@ sudo dnf install livecd-tools spin-kickstarts pykickstart rpm-build createrepo_c
 ./scripts/build-rpms.sh
 ./scripts/build-live-iso.sh
 ```
-Or use `.github/workflows/build-live-iso.yml` in a dedicated GitHub repository.
+Or use `.github/workflows/build-live-iso.yml`.
 
 ## USB-only rule
 The kickstart removes Anaconda/liveinst. In Live mode Q-USB Guard sets non-USB whole disks read-only before UDisks; UDisks also ignores internal storage.
