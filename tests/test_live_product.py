@@ -1,10 +1,10 @@
 from pathlib import Path
 import json
 ROOT=Path(__file__).resolve().parents[1]
-def test_live_branch_uses_fedora_kde_kickstart():
-    s=(ROOT/'scripts/build-live-iso.sh').read_text(); assert 'fedora-live-kde.ks' in s; assert 'livecd-creator' in s
-def test_usb_only_packages_remove_installer():
-    p=(ROOT/'live/quantic-packages.txt').read_text(); assert '-anaconda' in p and '-liveinst' in p
+def test_live_branch_uses_fedora_kde_kiwi():
+    s=(ROOT/'scripts/build-live-iso.sh').read_text(); assert 'fedora-kiwi-descriptions' in s; assert 'KDE-Desktop-Live' in s; assert 'kiwi-build' in s
+def test_usb_only_build_removes_installer():
+    p=(ROOT/'scripts/prepare-kiwi.py').read_text(); assert 'anaconda-live' in p and 'anaconda-install-env-deps' in p; assert 'quantic.live=1' in p
 def test_qml_has_real_pages_and_navigation():
     main=(ROOT/'shell/qml/Main.qml').read_text(); assert 'StackLayout' in main
     for name in ['HomePage','AppsPage','FilesPage','CompanionPage','LabPage','SettingsPage','ResourcesPage']:
@@ -23,6 +23,6 @@ def test_companion_remains_unprivileged():
 def test_theme_is_plasma6_package():
     metadata=json.loads((ROOT/'plasma/org.quantic.desktop/metadata.json').read_text()); assert metadata['KPackageStructure']=='Plasma/LookAndFeel'
 def test_workflow_builds_and_uploads_iso():
-    w=(ROOT/'.github/workflows/build-live-iso.yml').read_text(); assert 'fedora:44' in w; assert '--privileged' in w; assert 'actions/upload-artifact@v4' in w
+    w=(ROOT/'.github/workflows/build-live-iso.yml').read_text(); assert 'fedora:44' in w; assert '--privileged' in w; assert 'kiwi-systemdeps' in w; assert 'actions/upload-artifact@v4' in w
 def test_rpm_specs_exist():
     for n in ['quantic-shell','quantic-services','quantic-theme']: assert (ROOT/f'rpm/{n}.spec').exists()
