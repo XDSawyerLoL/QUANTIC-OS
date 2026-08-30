@@ -28,13 +28,7 @@ for cmd in curl sha256sum xorriso unsquashfs mksquashfs mount umount docker rsyn
 
 mkdir -p "$WORK" "$OUT_DIR" "$ROOT_MNT"
 
-echo '[1/8] Downloading the official Fedora KDE 44 Live ISO'
-if [[ ! -f "$BASE_ISO" ]]; then
-  curl -fL --retry 5 --retry-all-errors --continue-at - "$BASE_URL" -o "$BASE_ISO"
-fi
-echo "$BASE_SHA256  $BASE_ISO" | sha256sum -c -
-
-echo '[2/8] Building Quantic Home against Fedora 44 Qt 6'
+echo '[1/8] Building Quantic Home against Fedora 44 Qt 6'
 rm -rf "$QBUILD"
 mkdir -p "$QBUILD"
 docker run --rm \
@@ -47,6 +41,12 @@ docker run --rm \
     cmake --build /build --parallel "$(nproc)"
     test -x /build/quantic-home
   '
+
+echo '[2/8] Downloading and verifying official Fedora KDE 44 Live ISO'
+if [[ ! -f "$BASE_ISO" ]]; then
+  curl -fL --retry 5 --retry-all-errors --continue-at - "$BASE_URL" -o "$BASE_ISO"
+fi
+echo "$BASE_SHA256  $BASE_ISO" | sha256sum -c -
 
 echo '[3/8] Extracting Fedora LiveOS payload'
 rm -rf "$SQUASH_TREE" "$SQUASH_NEW"
@@ -69,17 +69,16 @@ sudo rsync -a "$ROOT/services/" "$ROOT_MNT/usr/lib/quantic/services/"
 sudo rsync -a "$ROOT/config/" "$ROOT_MNT/etc/quantic/"
 sudo chmod 0755 "$ROOT_MNT/usr/lib/quantic/services/"*.sh 2>/dev/null || true
 
-# Enable only the early Live USB disk guard at this stage. Other Quantic
-# services are kept on disk but are not allowed to make a Live image unbootable.
+# Only the early Live USB disk guard is enabled here. Other Quantic services
+# stay on disk but cannot make a first hardware boot fail.
 sudo install -D -m 0644 "$ROOT/systemd/quantic-usb-safe.service" \
   "$ROOT_MNT/usr/lib/systemd/system/quantic-usb-safe.service"
 sudo mkdir -p "$ROOT_MNT/etc/systemd/system/local-fs.target.wants"
 sudo ln -sfn /usr/lib/systemd/system/quantic-usb-safe.service \
   "$ROOT_MNT/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
 
-# Quantic V1 is Live-only: hide the graphical installer entry points. We do
-# not rewrite Fedora's boot chain or kernel; that is precisely what makes this
-# remaster path less fragile than rebuilding the distribution from scratch.
+# V1.2 is Live-only. Keep Fedora's proven kernel/initramfs/UEFI chain and hide
+# installer launchers rather than turning this test image into an installer.
 sudo mkdir -p "$ROOT_MNT/usr/local/share/applications"
 for desktop_id in liveinst.desktop org.fedoraproject.AnacondaInstaller.desktop org.fedoraproject.Anaconda.desktop; do
   sudo tee "$ROOT_MNT/usr/local/share/applications/$desktop_id" >/dev/null <<EOF
@@ -98,7 +97,6 @@ BASE="Fedora KDE Plasma Desktop 44"
 BUILD_STRATEGY="verified-fedora-remaster"
 EOF
 
-# Apply Fedora SELinux labels from the target filesystem policy where possible.
 sudo chroot "$ROOT_MNT" /sbin/restorecon -RF \
   /usr/libexec/quantic-home \
   /etc/xdg/autostart/quantic-home.desktop \
