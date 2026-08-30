@@ -7,8 +7,9 @@ def test_visual_reference_is_present():
 
 def test_live_product_has_real_plasma_wayland_build_path():
     text=(ROOT/'scripts/build-live-iso.sh').read_text()
-    assert 'fedora-live-kde.ks' in text
-    assert 'livecd-creator' in text
+    assert 'fedora-kiwi-descriptions' in text
+    assert 'KDE-Desktop-Live' in text
+    assert 'kiwi-build' in text
 
 def test_normal_shell_is_qml_not_framebuffer():
     qml=(ROOT/'shell/qml/Main.qml').read_text()
