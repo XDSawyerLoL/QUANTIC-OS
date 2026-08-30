@@ -8,7 +8,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space
@@ -22,11 +22,14 @@ jobs:
           python3 -m pytest -q
           bash -n scripts/*.sh services/*.sh
           python3 -m py_compile services/*.py scripts/*.py
-      - name: Build Fedora 44 Live ISO
+      - name: Build Fedora 44 KDE Live ISO with KIWI
         run: |
-          docker run --rm --privileged -v "$PWD:/workspace" -w /workspace fedora:44 bash -lc '
+          docker run --rm --privileged \
+            -v "$PWD:/workspace" \
+            -v /dev:/dev \
+            -w /workspace fedora:44 bash -lc '
             set -euxo pipefail
-            dnf -y install livecd-tools spin-kickstarts pykickstart rpm-build createrepo_c gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel git rsync findutils tar gzip sudo
+            dnf -y install kiwi kiwi-systemdeps distribution-gpg-keys rpm-build createrepo_c gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel git rsync findutils tar gzip sudo python3-lxml
             chmod +x scripts/*.sh scripts/*.py services/*.sh
             scripts/build-rpms.sh
             test -n "$(find build/rpms -maxdepth 1 -name '*.rpm' -print -quit)"
@@ -35,7 +38,8 @@ jobs:
       - name: Verify artifact
         run: |
           test -s build/live/Quantic-OS-V1.1-Live-x86_64.iso
-          sha256sum -c build/live/Quantic-OS-V1.1-Live-x86_64.iso.sha256
+          (cd build/live && sha256sum -c Quantic-OS-V1.1-Live-x86_64.iso.sha256)
+          ls -lh build/live/Quantic-OS-V1.1-Live-x86_64.iso
       - uses: actions/upload-artifact@v4
         with:
           name: Quantic-OS-V1.1-Live-x86_64
@@ -43,3 +47,4 @@ jobs:
             build/live/Quantic-OS-V1.1-Live-x86_64.iso
             build/live/Quantic-OS-V1.1-Live-x86_64.iso.sha256
           retention-days: 14
+          compression-level: 0
