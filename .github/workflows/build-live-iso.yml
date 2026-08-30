@@ -18,7 +18,8 @@ jobs:
           df -h
       - name: Static foundation checks
         run: |
-          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          python3 -m pip install -q pytest
+          python3 -m pytest -q
           bash -n scripts/*.sh services/*.sh
           python3 -m py_compile services/*.py scripts/*.py
       - name: Build Fedora 44 Live ISO
