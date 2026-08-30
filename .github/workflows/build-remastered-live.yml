@@ -1,0 +1,71 @@
+name: Build Quantic Remastered Live ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [rework/fedora-native-builder]
+
+permissions:
+  contents: read
+
+jobs:
+  remaster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h
+
+      - name: Install remaster tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xorriso squashfs-tools e2fsprogs rsync curl util-linux
+
+      - name: Validate source before expensive build
+        run: |
+          python3 -m pip install -q pytest
+          python3 -m pytest -q
+          bash -n scripts/*.sh services/*.sh
+          python3 -m py_compile services/*.py scripts/*.py
+
+      - name: Remaster verified Fedora KDE 44 ISO
+        run: |
+          chmod +x scripts/remaster-fedora-kde.sh
+          scripts/remaster-fedora-kde.sh
+
+      - name: Verify Quantic ISO checksum
+        run: |
+          cd build/live
+          sha256sum -c Quantic-OS-V1.2-Live-x86_64.iso.sha256
+          ls -lh Quantic-OS-V1.2-Live-x86_64.iso
+
+      - name: Split large ISO for GitHub artifact transport
+        run: |
+          cd build/live
+          split -b 1800M -d -a 2 Quantic-OS-V1.2-Live-x86_64.iso Quantic-OS-V1.2-Live-x86_64.iso.part-
+          sha256sum Quantic-OS-V1.2-Live-x86_64.iso.part-* > Quantic-OS-V1.2-Live-x86_64.parts.sha256
+          cat > REASSEMBLE-WINDOWS.txt <<'EOF'
+          Put all .part-* files in the same folder, then run in Windows Command Prompt:
+          copy /b Quantic-OS-V1.2-Live-x86_64.iso.part-00+Quantic-OS-V1.2-Live-x86_64.iso.part-01+Quantic-OS-V1.2-Live-x86_64.iso.part-02 Quantic-OS-V1.2-Live-x86_64.iso
+
+          If only part-00 and part-01 exist, omit +part-02.
+          Then verify the final ISO against Quantic-OS-V1.2-Live-x86_64.iso.sha256 before flashing it.
+          EOF
+          ls -lh Quantic-OS-V1.2-Live-x86_64.iso.part-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quantic-OS-V1.2-Live-x86_64-parts
+          path: |
+            build/live/Quantic-OS-V1.2-Live-x86_64.iso.part-*
+            build/live/Quantic-OS-V1.2-Live-x86_64.iso.sha256
+            build/live/Quantic-OS-V1.2-Live-x86_64.parts.sha256
+            build/live/REASSEMBLE-WINDOWS.txt
+          retention-days: 7
+          compression-level: 0
