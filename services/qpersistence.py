@@ -17,6 +17,7 @@ STATE = Path("/var/lib/quantic")
 RUNTIME = Path("/run/quantic")
 MOUNT = Path("/run/quantic/persist")
 LABEL = os.environ.get("QUANTIC_PERSIST_LABEL", "QUANTIC-DATA")
+LAYOUT = ("models", "memory", "index", "skills", "connectors", "tasks", "simulations", "audit", "vault")
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -52,6 +53,14 @@ def ensure_dirs() -> None:
     MOUNT.mkdir(parents=True, exist_ok=True)
 
 
+def initialise_layout(durable: Path) -> None:
+    for name in LAYOUT:
+        (durable / name).mkdir(parents=True, exist_ok=True)
+    (durable / "models" / "ollama").mkdir(parents=True, exist_ok=True)
+    (durable / "users").mkdir(parents=True, exist_ok=True)
+    (durable / "users").chmod(0o1777)
+
+
 def mount_persistence(dev: str) -> bool:
     if run("mountpoint", "-q", str(MOUNT), check=False).returncode != 0:
         p = run("mount", "-o", "rw,nosuid,nodev,noexec", dev, str(MOUNT), check=False)
@@ -59,21 +68,17 @@ def mount_persistence(dev: str) -> bool:
             return False
     durable = MOUNT / "quantic-state"
     durable.mkdir(parents=True, exist_ok=True)
-    users = MOUNT / "users"
-    users.mkdir(parents=True, exist_ok=True)
-    users.chmod(0o1777)
+    initialise_layout(durable)
     if run("mountpoint", "-q", str(STATE), check=False).returncode != 0:
         run("mount", "--bind", str(durable), str(STATE))
     return True
 
 
 def write_status(mode: str, device: str | None = None, reason: str | None = None) -> None:
-    payload = {"mode": mode, "label": LABEL, "device": device}
+    payload = {"mode": mode, "label": LABEL, "device": device, "state": str(STATE)}
     if reason:
         payload["reason"] = reason
-    (RUNTIME / "persistence.json").write_text(
-        json.dumps(payload, indent=2), encoding="utf-8"
-    )
+    (RUNTIME / "persistence.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def main() -> int:
