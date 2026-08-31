@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q-Agent Runtime: policy + simulation + routing + Q-Twin + persistent task orchestration."""
+"""Q-Agent Runtime: policy + simulation + Q-Twin + verify + rollback + persistent tasks."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -13,12 +13,16 @@ try:
     from .qtoolrouter import default_router
     from .qtwin import capture, state_diff, persist_snapshot
     from .qtasks import load as load_task, transition
+    from .qverify import verify
+    from .qrollback import begin as rollback_begin, mark as rollback_mark, rollback
 except ImportError:
     from qpolicy import decide, audit
     from qsimulation import evaluate, persist
     from qtoolrouter import default_router
     from qtwin import capture, state_diff, persist_snapshot
     from qtasks import load as load_task, transition
+    from qverify import verify
+    from qrollback import begin as rollback_begin, mark as rollback_mark, rollback
 
 RUNTIME_AUDIT = Path("/var/lib/quantic/audit/runtime.jsonl")
 
@@ -45,7 +49,6 @@ def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_le
 
     sim = evaluate(spec.name, spec.category, spec.reversible, simulation_level)
     persist(sim)
-
     if sim.verdict in {"BLOCK", "REQUIRE_SIMULATION"}:
         out = {"ok": False, "stage": "simulation", "simulation": asdict(sim)}
         _runtime_log(out)
@@ -58,29 +61,39 @@ def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_le
         return out
 
     before = capture()
-    try:
-        persist_snapshot(before, "before")
-    except OSError:
-        pass
+    try: persist_snapshot(before, "before")
+    except OSError: pass
 
+    journal = rollback_begin(tool, {"arguments": arguments, "before": before}, spec.reversible)
     try:
         result = router.invoke(tool, arguments)
         after = capture()
-        try:
-            persist_snapshot(after, "after")
-        except OSError:
-            pass
-        verification = state_diff(before, after)
-        out = {
-            "ok": bool(result.get("ok", True)),
-            "stage": "complete",
-            "tool": tool,
-            "result": result,
-            "simulation": asdict(sim),
-            "verification": verification,
-        }
+        try: persist_snapshot(after, "after")
+        except OSError: pass
+        twin_diff = state_diff(before, after)
+        verification = verify(tool, result, before, after)
+
+        if verification.passed:
+            rollback_mark(journal, "committed")
+            out = {
+                "ok": bool(result.get("ok", True)), "stage": "complete", "tool": tool,
+                "result": result, "simulation": asdict(sim), "twin": twin_diff,
+                "verification": asdict(verification), "rollback_record": journal.id,
+            }
+        else:
+            rb = rollback(journal)
+            out = {
+                "ok": False, "stage": "verify", "tool": tool, "result": result,
+                "simulation": asdict(sim), "twin": twin_diff,
+                "verification": asdict(verification), "rollback": rb,
+            }
     except Exception as exc:
-        out = {"ok": False, "stage": "tool", "tool": tool, "error": f"{type(exc).__name__}: {exc}", "simulation": asdict(sim)}
+        rb = rollback(journal)
+        out = {
+            "ok": False, "stage": "tool", "tool": tool,
+            "error": f"{type(exc).__name__}: {exc}", "simulation": asdict(sim),
+            "rollback": rb,
+        }
     _runtime_log(out)
     return out
 
@@ -93,9 +106,12 @@ def execute_task(task_id: str, *, approved: bool = False, simulation_level: str 
         transition(task_id, "waiting_approval")
     elif out.get("ok"):
         transition(task_id, "done")
+    elif out.get("stage") == "verify" and out.get("rollback"):
+        transition(task_id, "rolled_back", "verification failed; rollback requested")
     else:
         transition(task_id, "failed", out.get("error", out.get("stage", "unknown failure")))
     return out
+
 
 if __name__ == "__main__":
     import argparse
