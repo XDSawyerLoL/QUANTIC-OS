@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Quantic persistence broker.
 
-Finds a removable filesystem labelled QUANTIC-DATA, mounts it safely, and
-binds durable Quantic state into /var/lib/quantic. If no persistence volume is
-present, Quantic continues in ephemeral mode without blocking the desktop.
+Finds a *removable USB* filesystem labelled QUANTIC-DATA, mounts it safely,
+and binds durable Quantic state into /var/lib/quantic. Internal disks are
+explicitly rejected even if they carry the same label. If no valid persistence
+volume is present, Quantic continues in ephemeral mode without blocking boot.
 """
 from __future__ import annotations
 
@@ -28,6 +29,24 @@ def device_for_label() -> str | None:
     return dev or None
 
 
+def removable_usb(dev: str) -> bool:
+    p = run("lsblk", "-ndo", "RM,TRAN,RO", dev, check=False)
+    if p.returncode != 0:
+        return False
+    fields = p.stdout.strip().split()
+    if len(fields) < 3:
+        # For a partition, query its parent disk.
+        parent = run("lsblk", "-ndo", "PKNAME", dev, check=False).stdout.strip()
+        if not parent:
+            return False
+        p = run("lsblk", "-ndo", "RM,TRAN,RO", f"/dev/{parent}", check=False)
+        fields = p.stdout.strip().split()
+    if len(fields) < 3:
+        return False
+    rm, transport, ro = fields[0], fields[1].lower(), fields[2]
+    return rm == "1" and transport == "usb" and ro == "0"
+
+
 def ensure_dirs() -> None:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     STATE.mkdir(parents=True, exist_ok=True)
@@ -36,7 +55,7 @@ def ensure_dirs() -> None:
 
 def mount_persistence(dev: str) -> bool:
     if run("mountpoint", "-q", str(MOUNT), check=False).returncode != 0:
-        p = run("mount", "-o", "rw,nosuid,nodev", dev, str(MOUNT), check=False)
+        p = run("mount", "-o", "rw,nosuid,nodev,noexec", dev, str(MOUNT), check=False)
         if p.returncode != 0:
             return False
     durable = MOUNT / "quantic-state"
@@ -46,10 +65,12 @@ def mount_persistence(dev: str) -> bool:
     return True
 
 
-def write_status(mode: str, device: str | None = None) -> None:
+def write_status(mode: str, device: str | None = None, reason: str | None = None) -> None:
+    payload = {"mode": mode, "label": LABEL, "device": device}
+    if reason:
+        payload["reason"] = reason
     (RUNTIME / "persistence.json").write_text(
-        json.dumps({"mode": mode, "label": LABEL, "device": device}, indent=2),
-        encoding="utf-8",
+        json.dumps(payload, indent=2), encoding="utf-8"
     )
 
 
@@ -57,12 +78,15 @@ def main() -> int:
     ensure_dirs()
     dev = device_for_label()
     if not dev:
-        write_status("ephemeral")
+        write_status("ephemeral", reason="no QUANTIC-DATA volume")
+        return 0
+    if not removable_usb(dev):
+        write_status("ephemeral", dev, "label found but device is not a writable removable USB disk")
         return 0
     if mount_persistence(dev):
         write_status("persistent", dev)
         return 0
-    write_status("degraded", dev)
+    write_status("degraded", dev, "mount failed")
     return 0
 
 
