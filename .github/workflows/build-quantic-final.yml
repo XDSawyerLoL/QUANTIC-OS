@@ -15,7 +15,7 @@ concurrency:
 jobs:
   final-remaster:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -38,10 +38,14 @@ jobs:
           python3 -m py_compile services/*.py scripts/*.py
           grep -q 'QUANTIC-DATA' services/qpersistence.py
           grep -q 'removable_usb' services/qpersistence.py
+          grep -q 'WHISPER_MODEL' services/qvoice.py
+          grep -q 'qwen3:4b' scripts/provision-final-ai.sh
+          grep -q 'quantic-voice.service' scripts/remaster-quantic-final.sh
+          grep -q 'quantic-ollama.service' scripts/remaster-quantic-final.sh
 
       - name: Build final Quantic Live ISO
         run: |
-          chmod +x scripts/remaster-quantic-final.sh
+          chmod +x scripts/remaster-quantic-final.sh scripts/provision-final-ai.sh
           scripts/remaster-quantic-final.sh
 
       - name: Verify final ISO checksum
