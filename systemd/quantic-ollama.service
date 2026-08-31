@@ -1,19 +1,20 @@
 [Unit]
 Description=Quantic local LLM engine (Ollama)
-After=local-fs.target
+After=local-fs.target quantic-persistence.service
+Wants=quantic-persistence.service
 ConditionPathExists=/usr/bin/ollama
 
 [Service]
 Type=simple
 User=ollama
 Group=ollama
+ExecStartPre=/usr/bin/mkdir -p /var/lib/quantic/models/ollama
 ExecStart=/usr/bin/ollama serve
 Restart=on-failure
 RestartSec=2
 Environment=OLLAMA_HOST=127.0.0.1:11434
-Environment=OLLAMA_MODELS=/usr/share/quantic/ollama-models
+Environment=OLLAMA_MODELS=/var/lib/quantic/models/ollama
 Environment=OLLAMA_KEEP_ALIVE=10m
-StateDirectory=ollama
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
@@ -24,7 +25,7 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=no
-ReadWritePaths=/var/lib/ollama
+ReadWritePaths=/var/lib/quantic
 
 [Install]
 WantedBy=multi-user.target
