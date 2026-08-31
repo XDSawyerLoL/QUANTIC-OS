@@ -1,14 +1,15 @@
 from pathlib import Path
-import importlib.util
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICES = ROOT / "services"
 sys.path.insert(0, str(SERVICES))
 
+from qconnectors import allowed
 from qpolicy import decide
 from qsimulation import evaluate
 from qtoolrouter import default_router
+from qtwin import compare
 
 
 def test_policy_fails_closed_for_unknown_capability():
@@ -36,15 +37,32 @@ def test_default_tools_are_read_only_capabilities():
     assert all(tools[name]["category"] in {"read", "inspect"} for name in tools)
 
 
+def test_unknown_connector_is_denied():
+    ok, _ = allowed("missing", "file.read")
+    assert ok is False
+
+
+def test_qtwin_rejects_regression():
+    verdict = compare({"latency_ms": 100.0}, {"latency_ms": 120.0}, max_regression_pct=3.0)
+    assert verdict.passed is False
+
+
+def test_qtwin_accepts_improvement():
+    verdict = compare({"tokens_per_second": 10.0}, {"tokens_per_second": 12.0}, max_regression_pct=3.0)
+    assert verdict.passed is True
+
+
 def test_containment_source_has_no_shell_execution():
     src = (SERVICES / "qcontainment.py").read_text(encoding="utf-8")
     assert "shell=True" not in src
     assert "bubblewrap unavailable; fail closed" in src
 
 
-def test_runtime_wires_policy_and_simulation_before_tool_dispatch():
+def test_runtime_wires_policy_simulation_and_twin_before_dispatch():
     src = (SERVICES / "qagent_runtime.py").read_text(encoding="utf-8")
     assert "decide(" in src
     assert "evaluate(" in src
+    assert "capture()" in src
+    assert "state_diff(" in src
     assert src.index("decide(") < src.index("router.invoke(")
     assert src.index("evaluate(") < src.index("router.invoke(")
