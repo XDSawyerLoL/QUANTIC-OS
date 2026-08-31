@@ -139,13 +139,15 @@ test -x "$ROOT_TREE/usr/libexec/quantic-home"
 test -f "$ROOT_TREE/etc/quantic-release"
 test -L "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
 
-echo '[5/8] Repacking Fedora LiveOS as EROFS'
-# Ubuntu 24.04 ships erofs-utils 1.7.1. These options are supported there and
-# keep compatibility with Fedora's EROFS live boot support while giving a
-# reasonably compact image without relying on newer-only fragdedupe options.
-sudo mkfs.erofs -zlzma,6 -Eall-fragments -C1048576 \
-  "$EROFS_NEW" "$ROOT_TREE" >/dev/null
+echo '[5/8] Repacking Fedora LiveOS as EROFS (LZ4HC)'
+# LZMA/MicroLZMA in erofs-utils 1.7.1 is single-threaded and can exceed the
+# GitHub Actions timeout on a full Fedora KDE root tree. LZ4HC is natively
+# supported by this erofs-utils version and the Fedora kernel EROFS driver,
+# while remaining dramatically faster to build.
+sudo mkfs.erofs -zlz4hc -Eall-fragments -C1048576 \
+  "$EROFS_NEW" "$ROOT_TREE"
 fsck.erofs "$EROFS_NEW" >/dev/null
+ls -lh "$EROFS_ORIG" "$EROFS_NEW"
 
 echo '[6/8] Replaying Fedora boot metadata and replacing only LiveOS payload'
 rm -f "$OUT_ISO"
