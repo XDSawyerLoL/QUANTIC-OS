@@ -48,6 +48,16 @@ jobs:
           grep -q 'external:QUANTIC-DATA/models/ollama' scripts/remaster-quantic-final.sh
           grep -q 'Refusing non-removable volume' scripts/prepare-quantic-data.ps1
 
+      - name: Compile Quantic Home on Fedora 44
+        run: |
+          docker run --rm -v "$PWD:/src:ro" fedora:44 bash -lc '
+            set -euxo pipefail
+            dnf -y install gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel
+            cmake -S /src/shell -B /tmp/quantic-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+            cmake --build /tmp/quantic-build --parallel "$(nproc)"
+            test -x /tmp/quantic-build/quantic-home
+          '
+
       - name: Build final Quantic Live ISO
         run: |
           chmod +x scripts/remaster-quantic-final.sh scripts/provision-final-ai.sh
