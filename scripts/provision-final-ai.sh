@@ -6,11 +6,38 @@ WORK=${2:?Usage: provision-final-ai.sh ROOT_TREE WORKDIR}
 MODEL_DIR="$ROOT_TREE/usr/share/quantic/models"
 OLLAMA_DST="$ROOT_TREE/usr/share/quantic/ollama-models"
 OLLAMA_CACHE="$WORK/ollama-models"
+RESOLV_DST="$ROOT_TREE/etc/resolv.conf"
+RESOLV_BACKUP="$WORK/resolv.conf.root-tree.backup"
+HAD_RESOLV=0
 
-sudo mkdir -p "$MODEL_DIR" "$OLLAMA_DST" "$OLLAMA_CACHE"
+sudo mkdir -p "$MODEL_DIR" "$OLLAMA_DST" "$OLLAMA_CACHE" "$WORK"
+
+restore_resolver() {
+  if [[ "$HAD_RESOLV" == 1 && -f "$RESOLV_BACKUP" ]]; then
+    sudo cp -L "$RESOLV_BACKUP" "$RESOLV_DST"
+  else
+    sudo rm -f "$RESOLV_DST"
+  fi
+}
+trap restore_resolver EXIT
+
+# The extracted Fedora Live root can contain a resolv.conf symlink that only
+# becomes valid after boot. During CI chroot provisioning that leaves dnf/pip
+# without DNS even though the GitHub runner itself has working networking.
+# Seed the chroot with the runner resolver, then restore the Live image state.
+if [[ -e "$RESOLV_DST" || -L "$RESOLV_DST" ]]; then
+  sudo cp -L "$RESOLV_DST" "$RESOLV_BACKUP" 2>/dev/null || true
+  HAD_RESOLV=1
+fi
+sudo rm -f "$RESOLV_DST"
+sudo cp -L /etc/resolv.conf "$RESOLV_DST"
+sudo chmod 0644 "$RESOLV_DST"
+
+echo '[AI] Verifying network/DNS inside Fedora chroot'
+sudo chroot "$ROOT_TREE" /usr/bin/getent hosts mirrors.fedoraproject.org >/dev/null
 
 echo '[AI] Installing Fedora-native local inference/audio runtime'
-sudo chroot "$ROOT_TREE" /usr/bin/dnf -y install \
+sudo chroot "$ROOT_TREE" /usr/bin/dnf -y --setopt=retries=5 --setopt=timeout=30 install \
   ollama whisper-cpp espeak-ng alsa-utils pipewire-utils python3-psutil python3-pip
 sudo chroot "$ROOT_TREE" /usr/bin/dnf clean all
 
@@ -36,7 +63,7 @@ echo '[AI] Preloading Quantic default LLM so first boot works without API keys'
 rm -rf "$OLLAMA_CACHE" && mkdir -p "$OLLAMA_CACHE"
 docker run --rm -v "$OLLAMA_CACHE:/models" fedora:44 bash -lc '
   set -euo pipefail
-  dnf -y install ollama >/dev/null
+  dnf -y --setopt=retries=5 --setopt=timeout=30 install ollama >/dev/null
   export OLLAMA_MODELS=/models
   export OLLAMA_HOST=127.0.0.1:11434
   ollama serve >/tmp/ollama.log 2>&1 &
