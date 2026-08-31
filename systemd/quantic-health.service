@@ -1,0 +1,16 @@
+[Unit]
+Description=Quantic health snapshot
+After=quantic-persistence.service NetworkManager.service
+Wants=quantic-persistence.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qhealth.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run/quantic
+
+[Install]
+WantedBy=quantic-core.target
