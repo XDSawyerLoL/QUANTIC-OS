@@ -1,0 +1,21 @@
+[Unit]
+Description=Quantic local voice companion
+After=graphical-session.target pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 6
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qvoice.py --daemon
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/quantic
+Environment=QUANTIC_WHISPER_MODEL=/usr/share/quantic/models/ggml-base.bin
+Environment=QUANTIC_PIPER_MODEL=/usr/share/quantic/models/fr_FR-siwis-medium.onnx
+
+[Install]
+WantedBy=default.target
