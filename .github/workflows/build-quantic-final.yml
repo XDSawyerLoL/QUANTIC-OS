@@ -1,0 +1,98 @@
+name: Build Quantic OS Final ISO
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quantic-final-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  final-remaster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h
+
+      - name: Install remaster tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xorriso erofs-utils e2fsprogs rsync curl util-linux
+
+      - name: Validate Quantic source
+        run: |
+          python3 -m pip install -q pytest
+          python3 -m pytest -q
+          bash -n scripts/*.sh services/*.sh
+          python3 -m py_compile services/*.py scripts/*.py
+          grep -q 'QUANTIC-DATA' services/qpersistence.py
+          grep -q 'models.*ollama' services/qpersistence.py
+          grep -q 'removable_usb' services/qpersistence.py
+          grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' systemd/quantic-ollama.service
+          grep -q 'WHISPER_MODEL' services/qvoice.py
+          grep -q 'bubblewrap' scripts/provision-final-ai.sh
+          ! grep -q 'ollama pull qwen3:4b' scripts/provision-final-ai.sh
+          grep -q 'qagent_runtime.py' scripts/remaster-quantic-final.sh
+          grep -q 'external:QUANTIC-DATA/models/ollama' scripts/remaster-quantic-final.sh
+          grep -q 'Refusing non-removable volume' scripts/prepare-quantic-data.ps1
+
+      - name: Build final Quantic Live ISO
+        run: |
+          chmod +x scripts/remaster-quantic-final.sh scripts/provision-final-ai.sh
+          scripts/remaster-quantic-final.sh
+
+      - name: Verify final ISO checksum
+        run: |
+          cd build/live
+          sha256sum -c Quantic-OS-Final-Live-x86_64.iso.sha256
+          ls -lh Quantic-OS-Final-Live-x86_64.iso
+
+      - name: Split ISO for artifact transport
+        run: |
+          cd build/live
+          split -b 1800M -d -a 2 Quantic-OS-Final-Live-x86_64.iso Quantic-OS-Final-Live-x86_64.iso.part-
+          sha256sum Quantic-OS-Final-Live-x86_64.iso.part-* > Quantic-OS-Final-Live-x86_64.parts.sha256
+          cat > REASSEMBLE-WINDOWS.txt <<'EOF'
+          Put every .part-* file in the same folder, then run in PowerShell:
+          $parts = Get-ChildItem 'Quantic-OS-Final-Live-x86_64.iso.part-*' | Sort-Object Name
+          $out = [System.IO.File]::Create('Quantic-OS-Final-Live-x86_64.iso')
+          foreach ($part in $parts) {
+            $bytes = [System.IO.File]::ReadAllBytes($part.FullName)
+            $out.Write($bytes, 0, $bytes.Length)
+          }
+          $out.Close()
+          Get-FileHash .\Quantic-OS-Final-Live-x86_64.iso -Algorithm SHA256
+
+          Compare with Quantic-OS-Final-Live-x86_64.iso.sha256 before flashing.
+          EOF
+          cp ../../scripts/prepare-quantic-data.ps1 ./prepare-quantic-data.ps1
+          cat > QUANTIC-DATA-README.txt <<'EOF'
+          Quantic OS uses a separate removable volume labelled QUANTIC-DATA for persistent models, memory and agent state.
+          The included PowerShell bootstrap is deliberately non-destructive: it refuses the Windows system drive, refuses non-removable volumes, and never formats or repartitions a disk.
+          After creating/labelling the removable data volume, run:
+            .\prepare-quantic-data.ps1 -Drive E:\
+          Optionally supply an existing Ollama model-store directory:
+            .\prepare-quantic-data.ps1 -Drive E: -OllamaBundle C:\path\to\ollama-models
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quantic-OS-Final-Live-x86_64-parts
+          path: |
+            build/live/Quantic-OS-Final-Live-x86_64.iso.part-*
+            build/live/Quantic-OS-Final-Live-x86_64.iso.sha256
+            build/live/Quantic-OS-Final-Live-x86_64.parts.sha256
+            build/live/REASSEMBLE-WINDOWS.txt
+            build/live/prepare-quantic-data.ps1
+            build/live/QUANTIC-DATA-README.txt
+          retention-days: 7
+          compression-level: 0
