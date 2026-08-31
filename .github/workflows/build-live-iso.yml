@@ -1,50 +1,44 @@
-name: Build Quantic Live ISO
+name: Quantic CI
+
 on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
 permissions:
   contents: read
+
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
-          docker system prune -af || true
-          df -h
-      - name: Static foundation checks
+
+      - name: Python tests
         run: |
           python3 -m pip install -q pytest
           python3 -m pytest -q
+
+      - name: Shell syntax
+        run: |
           bash -n scripts/*.sh services/*.sh
+
+      - name: Python syntax
+        run: |
           python3 -m py_compile services/*.py scripts/*.py
-      - name: Build Fedora 44 KDE Live ISO with KIWI
+
+      - name: Foundation checks
         run: |
-          docker run --rm --privileged \
-            -v "$PWD:/workspace" \
-            -v /dev:/dev \
-            -w /workspace fedora:44 bash -lc '
-            set -euxo pipefail
-            dnf -y install kiwi kiwi-systemdeps distribution-gpg-keys rpm-build createrepo_c gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel git rsync findutils tar gzip sudo python3-lxml
-            chmod +x scripts/*.sh scripts/*.py services/*.sh
-            scripts/build-rpms.sh
-            test -n "$(find build/rpms -maxdepth 1 -name '*.rpm' -print -quit)"
-            scripts/build-live-iso.sh
-          '
-      - name: Verify artifact
+          chmod +x scripts/verify-foundation.sh
+          scripts/verify-foundation.sh
+
+      - name: Build-strategy guard
         run: |
-          test -s build/live/Quantic-OS-V1.1-Live-x86_64.iso
-          (cd build/live && sha256sum -c Quantic-OS-V1.1-Live-x86_64.iso.sha256)
-          ls -lh build/live/Quantic-OS-V1.1-Live-x86_64.iso
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Quantic-OS-V1.1-Live-x86_64
-          path: |
-            build/live/Quantic-OS-V1.1-Live-x86_64.iso
-            build/live/Quantic-OS-V1.1-Live-x86_64.iso.sha256
-          retention-days: 14
-          compression-level: 0
+          test -f scripts/remaster-fedora-kde.sh
+          test -f docs/BUILD-STRATEGY.md
+          grep -q 'BASE_SHA256=' scripts/remaster-fedora-kde.sh
+          grep -q 'boot_image any replay' scripts/remaster-fedora-kde.sh
+          echo 'Hosted CI validates Quantic source only; it no longer rebuilds Fedora with KIWI inside Ubuntu.'

@@ -1,0 +1,83 @@
+name: Build Quantic Remastered Live ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [rework/fedora-native-builder]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quantic-v1-remaster-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  remaster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h
+
+      - name: Install remaster tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xorriso erofs-utils e2fsprogs rsync curl util-linux
+          mkfs.erofs --version || true
+          fsck.erofs --version || true
+
+      - name: Validate source before expensive build
+        run: |
+          python3 -m pip install -q pytest
+          python3 -m pytest -q
+          bash -n scripts/*.sh services/*.sh
+          python3 -m py_compile services/*.py scripts/*.py
+
+      - name: Compile Quantic and remaster verified Fedora KDE 44 ISO
+        run: |
+          chmod +x scripts/remaster-fedora-kde.sh
+          scripts/remaster-fedora-kde.sh
+
+      - name: Verify Quantic ISO checksum
+        run: |
+          cd build/live
+          sha256sum -c Quantic-OS-V1.2-Live-x86_64.iso.sha256
+          ls -lh Quantic-OS-V1.2-Live-x86_64.iso
+
+      - name: Split large ISO for GitHub artifact transport
+        run: |
+          cd build/live
+          split -b 1800M -d -a 2 Quantic-OS-V1.2-Live-x86_64.iso Quantic-OS-V1.2-Live-x86_64.iso.part-
+          sha256sum Quantic-OS-V1.2-Live-x86_64.iso.part-* > Quantic-OS-V1.2-Live-x86_64.parts.sha256
+          cat > REASSEMBLE-WINDOWS.txt <<'EOF'
+          Put all .part-* files in the same folder. In Windows PowerShell, run:
+          $parts = Get-ChildItem 'Quantic-OS-V1.2-Live-x86_64.iso.part-*' | Sort-Object Name
+          $out = [System.IO.File]::Create('Quantic-OS-V1.2-Live-x86_64.iso')
+          foreach ($part in $parts) {
+            $bytes = [System.IO.File]::ReadAllBytes($part.FullName)
+            $out.Write($bytes, 0, $bytes.Length)
+          }
+          $out.Close()
+          Get-FileHash .\Quantic-OS-V1.2-Live-x86_64.iso -Algorithm SHA256
+
+          Compare the result with Quantic-OS-V1.2-Live-x86_64.iso.sha256 before flashing.
+          EOF
+          ls -lh Quantic-OS-V1.2-Live-x86_64.iso.part-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Quantic-OS-V1.2-Live-x86_64-parts
+          path: |
+            build/live/Quantic-OS-V1.2-Live-x86_64.iso.part-*
+            build/live/Quantic-OS-V1.2-Live-x86_64.iso.sha256
+            build/live/Quantic-OS-V1.2-Live-x86_64.parts.sha256
+            build/live/REASSEMBLE-WINDOWS.txt
+          retention-days: 7
+          compression-level: 0
