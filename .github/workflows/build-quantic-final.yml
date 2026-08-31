@@ -1,5 +1,6 @@
 name: Build Quantic OS Final ISO
 
+# Build trigger marker: consolidated q-agent platform + QUANTIC-DATA
 on:
   workflow_dispatch:
   push:
