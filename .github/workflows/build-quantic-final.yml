@@ -3,7 +3,7 @@ name: Build Quantic OS Final ISO
 on:
   workflow_dispatch:
   push:
-    branches: [final/quantic-os-v1]
+    branches: [final/quantic-os-v1, feature/q-agent-platform]
 
 permissions:
   contents: read
@@ -37,11 +37,15 @@ jobs:
           bash -n scripts/*.sh services/*.sh
           python3 -m py_compile services/*.py scripts/*.py
           grep -q 'QUANTIC-DATA' services/qpersistence.py
+          grep -q 'models.*ollama' services/qpersistence.py
           grep -q 'removable_usb' services/qpersistence.py
+          grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' systemd/quantic-ollama.service
           grep -q 'WHISPER_MODEL' services/qvoice.py
-          grep -q 'qwen3:4b' scripts/provision-final-ai.sh
-          grep -q 'quantic-voice.service' scripts/remaster-quantic-final.sh
-          grep -q 'quantic-ollama.service' scripts/remaster-quantic-final.sh
+          grep -q 'bubblewrap' scripts/provision-final-ai.sh
+          ! grep -q 'ollama pull qwen3:4b' scripts/provision-final-ai.sh
+          grep -q 'qagent_runtime.py' scripts/remaster-quantic-final.sh
+          grep -q 'external:QUANTIC-DATA/models/ollama' scripts/remaster-quantic-final.sh
+          grep -q 'Refusing non-removable volume' scripts/prepare-quantic-data.ps1
 
       - name: Build final Quantic Live ISO
         run: |
@@ -72,6 +76,15 @@ jobs:
 
           Compare with Quantic-OS-Final-Live-x86_64.iso.sha256 before flashing.
           EOF
+          cp ../../scripts/prepare-quantic-data.ps1 ./prepare-quantic-data.ps1
+          cat > QUANTIC-DATA-README.txt <<'EOF'
+          Quantic OS uses a separate removable volume labelled QUANTIC-DATA for persistent models, memory and agent state.
+          The included PowerShell bootstrap is deliberately non-destructive: it refuses the Windows system drive, refuses non-removable volumes, and never formats or repartitions a disk.
+          After creating/labelling the removable data volume, run:
+            .\prepare-quantic-data.ps1 -Drive E:
+          Optionally supply an existing Ollama model-store directory:
+            .\prepare-quantic-data.ps1 -Drive E: -OllamaBundle C:\path\to\ollama-models
+          EOF
 
       - uses: actions/upload-artifact@v4
         with:
@@ -81,5 +94,7 @@ jobs:
             build/live/Quantic-OS-Final-Live-x86_64.iso.sha256
             build/live/Quantic-OS-Final-Live-x86_64.parts.sha256
             build/live/REASSEMBLE-WINDOWS.txt
+            build/live/prepare-quantic-data.ps1
+            build/live/QUANTIC-DATA-README.txt
           retention-days: 7
           compression-level: 0
