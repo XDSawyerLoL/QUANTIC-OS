@@ -35,7 +35,6 @@ def removable_usb(dev: str) -> bool:
         return False
     fields = p.stdout.strip().split()
     if len(fields) < 3:
-        # For a partition, query its parent disk.
         parent = run("lsblk", "-ndo", "PKNAME", dev, check=False).stdout.strip()
         if not parent:
             return False
@@ -60,6 +59,9 @@ def mount_persistence(dev: str) -> bool:
             return False
     durable = MOUNT / "quantic-state"
     durable.mkdir(parents=True, exist_ok=True)
+    users = MOUNT / "users"
+    users.mkdir(parents=True, exist_ok=True)
+    users.chmod(0o1777)
     if run("mountpoint", "-q", str(STATE), check=False).returncode != 0:
         run("mount", "--bind", str(durable), str(STATE))
     return True
