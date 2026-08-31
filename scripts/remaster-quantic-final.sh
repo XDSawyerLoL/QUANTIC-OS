@@ -23,7 +23,6 @@ cleanup() {
   [[ "$SRC_MOUNTED" == 1 ]] && sudo umount "$SRC_MNT" || true
 }
 trap cleanup EXIT
-
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 2; }; }
 for cmd in curl sha256sum xorriso mount umount docker rsync blkid mkfs.erofs fsck.erofs; do need "$cmd"; done
 mkdir -p "$WORK" "$OUT_DIR" "$SRC_MNT" "$VERIFY_MNT"
@@ -54,7 +53,7 @@ sudo mkdir -p "$ROOT_TREE"
 sudo rsync -aHAX --numeric-ids "$SRC_MNT/" "$ROOT_TREE/"
 sudo umount "$SRC_MNT"; SRC_MOUNTED=0
 
-echo '[5/10] Injecting complete Quantic runtime'
+echo '[5/10] Injecting Quantic runtime + agent platform'
 sudo install -D -m 0755 "$QBUILD/quantic-home" "$ROOT_TREE/usr/libexec/quantic-home"
 sudo install -D -m 0644 "$ROOT/shell/autostart/quantic-home.desktop" "$ROOT_TREE/etc/xdg/autostart/quantic-home.desktop"
 sudo mkdir -p "$ROOT_TREE/usr/lib/quantic/services" "$ROOT_TREE/etc/quantic" "$ROOT_TREE/usr/share/backgrounds/quantic"
@@ -67,11 +66,10 @@ if [[ -d "$ROOT/plasma/org.quantic.desktop" ]]; then
   sudo rsync -a "$ROOT/plasma/org.quantic.desktop/" "$ROOT_TREE/usr/share/plasma/look-and-feel/org.quantic.desktop/"
 fi
 
-echo '[6/10] Provisioning offline Quantic brain + ears + voice'
+echo '[6/10] Provisioning compact local AI runtime, ears, voice and containment'
 chmod +x "$ROOT/scripts/provision-final-ai.sh"
 "$ROOT/scripts/provision-final-ai.sh" "$ROOT_TREE" "$WORK"
 
-# System services: safety first, then persistence/health, then local AI.
 for unit in quantic-usb-safe.service quantic-persistence.service quantic-health.service quantic-core.target quantic-ollama.service; do
   sudo install -D -m 0644 "$ROOT/systemd/$unit" "$ROOT_TREE/usr/lib/systemd/system/$unit"
 done
@@ -81,7 +79,6 @@ sudo ln -sfn /usr/lib/systemd/system/quantic-persistence.service "$ROOT_TREE/etc
 sudo ln -sfn /usr/lib/systemd/system/quantic-core.target "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-core.target"
 sudo ln -sfn /usr/lib/systemd/system/quantic-ollama.service "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
 
-# User companion and voice presence: globally enabled, sandboxed, unprivileged.
 for unit in quantic-companion.service quantic-voice.service; do
   sudo install -D -m 0644 "$ROOT/systemd/user/$unit" "$ROOT_TREE/usr/lib/systemd/user/$unit"
 done
@@ -89,7 +86,6 @@ sudo mkdir -p "$ROOT_TREE/etc/systemd/user/default.target.wants"
 sudo ln -sfn /usr/lib/systemd/user/quantic-companion.service "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-companion.service"
 sudo ln -sfn /usr/lib/systemd/user/quantic-voice.service "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"
 
-# Live-only product: no installer entry points.
 sudo mkdir -p "$ROOT_TREE/usr/local/share/applications"
 for desktop_id in liveinst.desktop org.fedoraproject.AnacondaInstaller.desktop org.fedoraproject.Anaconda.desktop; do
   sudo tee "$ROOT_TREE/usr/local/share/applications/$desktop_id" >/dev/null <<EOF
@@ -103,31 +99,30 @@ done
 
 sudo tee "$ROOT_TREE/etc/quantic-release" >/dev/null <<'EOF'
 NAME="Quantic OS"
-VERSION="Final Live"
+VERSION="Final Live Split-AI"
 BASE="Fedora KDE Plasma Desktop 44"
 BUILD_STRATEGY="verified-fedora-erofs-remaster"
-RUNTIME="quantic-core+companion+voice+ollama+whisper+piper+persistence+health"
-LOCAL_MODEL="qwen3:4b"
+RUNTIME="quantic-core+agent-platform+companion+voice+ollama+whisper+piper+persistence+health+containment"
+LOCAL_MODEL="external:QUANTIC-DATA/models/ollama"
 VOICE_MODE="always-on-local-wake"
+PERSISTENCE="usb-only:QUANTIC-DATA"
 EOF
 
 sudo chroot "$ROOT_TREE" /sbin/restorecon -RF /usr/libexec/quantic-home /etc/xdg/autostart/quantic-home.desktop /usr/lib/quantic /etc/quantic /usr/lib/systemd/system/quantic-\* /usr/lib/systemd/user/quantic-\* /usr/share/quantic /usr/share/backgrounds/quantic /usr/share/plasma/look-and-feel/org.quantic.desktop /usr/local/share/applications 2>/dev/null || true
 
+for f in qagent.py qagent_runtime.py qpolicy.py qsimulation.py qcontainment.py qtoolrouter.py qtwin.py qverify.py qrollback.py qskills.py qmcp.py qtasks.py qpersistence.py qhealth.py qvoice.py; do
+  test -x "$ROOT_TREE/usr/lib/quantic/services/$f"
+done
 test -x "$ROOT_TREE/usr/libexec/quantic-home"
-test -x "$ROOT_TREE/usr/lib/quantic/services/qcompanion_daemon.py"
-test -x "$ROOT_TREE/usr/lib/quantic/services/qvoice.py"
-test -x "$ROOT_TREE/usr/lib/quantic/services/qagent.py"
-test -x "$ROOT_TREE/usr/lib/quantic/services/qpersistence.py"
-test -x "$ROOT_TREE/usr/lib/quantic/services/qhealth.py"
 test -x "$ROOT_TREE/usr/bin/ollama"
+test -x "$ROOT_TREE/usr/bin/bwrap"
 test -s "$ROOT_TREE/usr/share/quantic/models/ggml-base.bin"
 test -s "$ROOT_TREE/usr/share/quantic/models/fr_FR-siwis-medium.onnx"
-test -s "$ROOT_TREE/usr/share/quantic/ollama-models/manifests/registry.ollama.ai/library/qwen3/4b"
 test -L "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
 test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-core.target"
 test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
-test -L "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-companion.service"
 test -L "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"
+grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' "$ROOT_TREE/usr/lib/systemd/system/quantic-ollama.service"
 
 echo '[7/10] Repacking LiveOS as fast EROFS LZ4HC'
 sudo mkfs.erofs -zlz4hc -Eall-fragments -C1048576 "$EROFS_NEW" "$ROOT_TREE"
@@ -137,7 +132,7 @@ echo '[8/10] Replaying Fedora boot metadata'
 rm -f "$OUT_ISO"
 xorriso -indev "$BASE_ISO" -outdev "$OUT_ISO" -boot_image any replay -map "$EROFS_NEW" /LiveOS/squashfs.img -commit >/dev/null 2>&1
 
-echo '[9/10] Structural, runtime, local-AI and boot validation'
+echo '[9/10] Structural, runtime, agent-platform and boot validation'
 test -s "$OUT_ISO"
 xorriso -indev "$OUT_ISO" -report_el_torito plain > "$WORK/el-torito.txt" 2>&1
 grep -Eqi 'UEFI|EFI|El Torito' "$WORK/el-torito.txt"
@@ -146,20 +141,23 @@ xorriso -osirrox on -indev "$OUT_ISO" -extract /LiveOS/squashfs.img "$VERIFY_IMG
 fsck.erofs "$VERIFY_IMG" >/dev/null
 sudo mount -t erofs -o loop,ro "$VERIFY_IMG" "$VERIFY_MNT"; VERIFY_MOUNTED=1
 test -x "$VERIFY_MNT/usr/libexec/quantic-home"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qcompanion_daemon.py"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qvoice.py"
+test -x "$VERIFY_MNT/usr/lib/quantic/services/qagent_runtime.py"
+test -x "$VERIFY_MNT/usr/lib/quantic/services/qpolicy.py"
+test -x "$VERIFY_MNT/usr/lib/quantic/services/qsimulation.py"
+test -x "$VERIFY_MNT/usr/lib/quantic/services/qcontainment.py"
 test -x "$VERIFY_MNT/usr/bin/ollama"
+test -x "$VERIFY_MNT/usr/bin/bwrap"
 test -s "$VERIFY_MNT/usr/share/quantic/models/ggml-base.bin"
-test -s "$VERIFY_MNT/usr/share/quantic/ollama-models/manifests/registry.ollama.ai/library/qwen3/4b"
 test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-core.target"
 test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
 test -L "$VERIFY_MNT/etc/systemd/user/default.target.wants/quantic-voice.service"
-grep -q 'LOCAL_MODEL="qwen3:4b"' "$VERIFY_MNT/etc/quantic-release"
+grep -q 'LOCAL_MODEL="external:QUANTIC-DATA/models/ollama"' "$VERIFY_MNT/etc/quantic-release"
+! test -d "$VERIFY_MNT/usr/share/quantic/ollama-models"
 sudo umount "$VERIFY_MNT"; VERIFY_MOUNTED=0
 sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"
 
-echo '[10/10] Quantic OS Final image complete'
+echo '[10/10] Quantic OS split-runtime image complete'
 ls -lh "$OUT_ISO" "$OUT_ISO.sha256"
 echo "Built: $OUT_ISO"
-echo 'Quantic local AI is embedded: first boot requires no API key and no model download.'
-echo 'NOTE: CI validation passed. Physical hardware/microphone/GPU certification remains mandatory before declaring a production release.'
+echo 'Runtime, voice and containment are embedded. Large LLM weights persist on removable QUANTIC-DATA.'
+echo 'NOTE: CI validation is not physical hardware certification.'
