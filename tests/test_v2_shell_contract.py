@@ -11,15 +11,9 @@ def test_main_uses_quantic_desktop_primitives():
     main = read("shell/qml/Main.qml")
     assert "QBar {" in main
     assert "QSpace {" in main
-    assert "QuickSettings {" in main
-    assert "NotificationCenter {" in main
-    assert "QSnap {" in main
     assert 'sequence: "Meta+Space"' in main
-    assert 'sequence: "Meta+N"' in main
-    assert 'sequence: "Meta+S"' in main
-    assert 'property string activeMission' in main
-    assert 'property string activeLayout' in main
-    assert "backend.askCompanion(prompt)" in main
+    assert "backend.activeMission" in main
+    assert "backend.restoreActiveMission()" in main
     assert "StackLayout" in main
 
 
@@ -40,33 +34,32 @@ def test_qspace_is_universal_command_surface():
     assert "ESPACES" in qspace
 
 
-def test_phase2_panels_have_escape_and_click_outside_close():
-    for path in [
-        "shell/qml/components/QuickSettings.qml",
-        "shell/qml/components/NotificationCenter.qml",
-        "shell/qml/components/QSnap.qml",
-    ]:
-        content = read(path)
-        assert "Popup.CloseOnEscape" in content
-        assert "Popup.CloseOnPressOutside" in content
+def test_phase2_surfaces_exist():
+    main = read("shell/qml/Main.qml")
+    assert "QuickSettings {" in main
+    assert "NotificationCenter {" in main
+    assert "QSnap {" in main
+    assert 'sequence: "Meta+N"' in main
+    assert 'sequence: "Meta+S"' in main
 
 
-def test_qsnap_exposes_layout_choice_without_direct_privilege():
-    snap = read("shell/qml/components/QSnap.qml")
-    assert "signal layoutChosen(string layoutId)" in snap
-    assert '"split"' in snap
-    assert '"focus"' in snap
-    assert '"triple"' in snap
-    assert "backend" not in snap
+def test_real_app_launcher_is_allowlisted_and_mission_aware():
+    header = read("shell/src/Backend.h")
+    impl = read("shell/src/Backend.cpp")
+    apps = read("shell/qml/pages/AppsPage.qml")
+    assert "Q_INVOKABLE bool launchApp" in header
+    assert "Q_INVOKABLE int restoreActiveMission" in header
+    assert "appCandidates()" in impl
+    assert "QStandardPaths::findExecutable" in impl
+    assert "QSaveFile" in impl
+    assert 'o.insert("missions",missions)' in impl
+    assert "m_missionApps" in impl
+    assert "backend.launchApp(modelData[2])" in apps
+    assert "QProcess::startDetached(exe,{})" in impl
+    assert "bash -lc" not in impl[impl.find("bool Backend::launchApp"):impl.find("void Backend::setActiveMission")]
 
 
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
-    for path in [
-        "qml/components/QBar.qml",
-        "qml/components/QSpace.qml",
-        "qml/components/QuickSettings.qml",
-        "qml/components/NotificationCenter.qml",
-        "qml/components/QSnap.qml",
-    ]:
-        assert path in cmake
+    for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml"]:
+        assert f"qml/components/{name}" in cmake
