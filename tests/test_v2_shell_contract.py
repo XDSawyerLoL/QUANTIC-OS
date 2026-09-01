@@ -104,9 +104,11 @@ def test_companion_has_local_push_to_talk_and_orb_presence():
     assert "Q_INVOKABLE bool listenOnce" in header
     assert 'findExecutable({"piper","piper-tts"})' in impl
     assert 'findExecutable({"whisper-cli","whisper-cpp","main"})' in impl
-    assert 'findExecutable({"pw-record","arecord"})' in impl
+    assert 'findExecutable({"arecord","pw-record"})' in impl
     assert 'findExecutable({"pw-play","aplay"})' in impl
-    assert "QTimer::singleShot(6200" in impl
+    assert "pcm16MeanAbsTail" in impl
+    assert "silentTicks>=7" in impl
+    assert "QTimer::singleShot(6200" not in impl
     assert "bash" not in impl and "sh -c" not in impl
     assert "QOrb {" in main_qml
     assert "onHoldVoice: companionBridge.listenOnce()" in main_qml
