@@ -2,7 +2,9 @@
 #include <QObject>
 #include <QTimer>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
+#include <QHash>
 
 class Backend final : public QObject {
     Q_OBJECT
@@ -65,6 +67,7 @@ public:
     Q_INVOKABLE bool launchApp(const QString &appId);
     Q_INVOKABLE void setActiveMission(const QString &mission);
     Q_INVOKABLE void rememberDesktopState();
+    Q_INVOKABLE int restoreActiveMission();
 signals:
     void metricsChanged();
     void companionChanged();
@@ -97,6 +100,7 @@ private:
     QString m_labOutput="Sélectionne une expérience. Les calculs seront exécutés localement par Q-Core.";
     QString m_activeMission="Quantic OS";
     QVariantList m_recentApps;
+    QHash<QString,QStringList> m_missionApps;
     QString m_lastLaunchStatus="Prêt";
     quint64 m_prevTotal=0, m_prevIdle=0;
     QTimer m_timer;
