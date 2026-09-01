@@ -29,10 +29,10 @@ jobs:
 
       - name: Compile V2 services
         run: |
-          python -m compileall -q services/qcontracts.py services/qeventbus.py services/qautonomy.py services/qmemory2.py services/qmemory_capture.py services/qmemory_trust.py services/qmemory_router.py services/qmemory_reasoner.py services/qmemory_graph.py services/qcontext.py services/qquantum_broker.py services/qlearning.py services/qworkflow_learning.py services/qskill_orchestrator.py services/qmultiagent_runtime.py services/qdag_runtime.py services/qplan_foresight.py services/qwindow_bridge.py services/qnotification_bridge.py
+          python -m compileall -q services/qcontracts.py services/qeventbus.py services/qautonomy.py services/qmemory2.py services/qmemory_capture.py services/qmemory_trust.py services/qmemory_router.py services/qmemory_reasoner.py services/qmemory_graph.py services/qcontext.py services/qquantum_broker.py services/qlearning.py services/qworkflow_learning.py services/qskill_orchestrator.py services/qmultiagent_runtime.py services/qdag_runtime.py services/qplan_foresight.py services/qwindow_bridge.py services/qnotification_bridge.py services/qapproval_bridge.py
 
       - name: Run V2 tests
-        run: pytest -q tests/test_v2_foundation.py tests/test_v2_autonomy.py tests/test_v2_memory_dream.py tests/test_v2_memory_trust_graph.py tests/test_v2_memory_router.py tests/test_v2_learning.py tests/test_v2_workflow_learning.py tests/test_v2_skill_orchestrator.py tests/test_v2_multiagent_runtime.py tests/test_v2_dag_runtime.py tests/test_v2_plan_foresight.py tests/test_v2_shell_contract.py tests/test_v2_window_bridge.py tests/test_v2_notifications.py
+        run: pytest -q tests/test_v2_foundation.py tests/test_v2_autonomy.py tests/test_v2_memory_dream.py tests/test_v2_memory_trust_graph.py tests/test_v2_memory_router.py tests/test_v2_learning.py tests/test_v2_workflow_learning.py tests/test_v2_skill_orchestrator.py tests/test_v2_multiagent_runtime.py tests/test_v2_dag_runtime.py tests/test_v2_plan_foresight.py tests/test_v2_shell_contract.py tests/test_v2_window_bridge.py tests/test_v2_notifications.py tests/test_v2_approval_bridge.py
 
   shell-build:
     runs-on: ubuntu-latest
