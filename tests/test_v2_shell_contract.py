@@ -73,6 +73,24 @@ def test_mission_ui_drives_exact_window_snapshot_bridge():
     assert "if(!layout.isEmpty())applyWindowLayout(layout)" in impl
 
 
+def test_quick_settings_are_real_and_allowlisted():
+    main = read("shell/src/main.cpp")
+    header = read("shell/src/SystemControls.h")
+    impl = read("shell/src/SystemControls.cpp")
+    qml = read("shell/qml/components/QuickSettings.qml")
+    cmake = read("shell/CMakeLists.txt")
+    assert 'setContextProperty("systemControls"' in main
+    for api in ["setWifiEnabled", "setBluetoothEnabled", "setMuted", "setVolumePercent", "setBrightnessPercent", "cyclePowerProfile"]:
+        assert f"Q_INVOKABLE void {api}" in header
+        assert f"systemControls.{api}" in qml
+    for tool in ["nmcli", "bluetoothctl", "wpctl", "brightnessctl", "powerprofilesctl"]:
+        assert f'"{tool}"' in impl
+    assert "QStandardPaths::findExecutable" in impl
+    assert "bash" not in impl
+    assert "sh -c" not in impl
+    assert "SystemControls.cpp" in cmake
+
+
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
     for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml"]:
