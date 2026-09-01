@@ -106,6 +106,7 @@ private:
     QString m_activeMission="Quantic OS";
     QVariantList m_recentApps;
     QHash<QString,QStringList> m_missionApps;
+    QHash<QString,QString> m_missionLayouts;
     QString m_lastLaunchStatus="Prêt";
     QString m_windowBridgeStatus="Fenêtres : détection en attente";
     quint64 m_prevTotal=0, m_prevIdle=0;
