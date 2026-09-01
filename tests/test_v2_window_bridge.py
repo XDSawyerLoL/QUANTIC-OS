@@ -28,12 +28,32 @@ def test_unknown_layout_is_refused():
     assert result["error"] == "unknown-layout"
 
 
-def test_wayland_fails_closed(monkeypatch):
+def test_wayland_fails_closed_without_kwin(monkeypatch):
     monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
-    monkeypatch.setattr(qwb.shutil, "which", lambda _: "/usr/bin/wmctrl")
+    monkeypatch.setattr(qwb, "_qdbus", lambda: None)
     cap = qwb.capability()
     assert cap["can_move_resize"] is False
     assert cap["mode"] == "observe-only"
+
+
+def test_wayland_kwin_enables_native_window_control(monkeypatch):
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setattr(qwb, "_qdbus", lambda: "/usr/bin/qdbus6")
+    monkeypatch.setattr(qwb, "_kwin_available", lambda qdbus=None: True)
+    cap = qwb.capability()
+    assert cap["can_list"] is False
+    assert cap["can_move_resize"] is True
+    assert cap["mode"] == "wayland-kwin6"
+
+
+def test_kwin_script_only_uses_known_layout_data():
+    script = qwb._kwin_script("half")
+    assert "workspace.stackingOrder" in script
+    assert "clientArea(KWin.MaximizeArea" in script
+    assert "w.frameGeometry" in script
+    assert "quantic-home" in script
+    assert "eval(" not in script
+    assert "callDBus(" not in script
 
 
 def test_x11_wmctrl_enables_real_window_control(monkeypatch):
