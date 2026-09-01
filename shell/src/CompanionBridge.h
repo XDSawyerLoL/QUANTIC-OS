@@ -11,6 +11,7 @@ class CompanionBridge final : public QObject {
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
     Q_PROPERTY(QString lastTranscript READ lastTranscript NOTIFY changed)
     Q_PROPERTY(QString voiceStatus READ voiceStatus NOTIFY changed)
+    Q_PROPERTY(QString voiceEngine READ voiceEngine NOTIFY changed)
     Q_PROPERTY(bool autoSpeak READ autoSpeak WRITE setAutoSpeak NOTIFY changed)
 public:
     explicit CompanionBridge(QObject *parent=nullptr);
@@ -19,6 +20,7 @@ public:
     bool listening() const { return m_listening; }
     QString lastTranscript() const { return m_lastTranscript; }
     QString voiceStatus() const { return m_voiceStatus; }
+    QString voiceEngine() const { return m_voiceEngine; }
     bool autoSpeak() const { return m_autoSpeak; }
 
     Q_INVOKABLE void refresh();
@@ -36,12 +38,17 @@ private:
     QString findExecutable(const QStringList &names) const;
     QString findVoiceModel() const;
     QString findWhisperModel() const;
+    QString neuralVoiceAdapter() const;
+    bool neuralVoiceAvailable() const;
     QString naturalSpeechText(const QString &text) const;
+    bool speakPiper(const QString &text);
+    void playWave(const QString &wavPath, QObject *cleanupOwner=nullptr);
     void setState(const QString &state);
 
     QString m_state="prêt";
     QString m_lastTranscript;
     QString m_voiceStatus="Voix locale : détection…";
+    QString m_voiceEngine="détection";
     bool m_speaking=false;
     bool m_listening=false;
     bool m_autoSpeak=true;
