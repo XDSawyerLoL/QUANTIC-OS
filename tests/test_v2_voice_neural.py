@@ -1,0 +1,41 @@
+from pathlib import Path
+
+from services.qvoice_neural import normalize_for_speech
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_neural_voice_normalizes_screen_text_for_speech():
+    text = normalize_for_speech("**CPU** à 42% 🙂 https://example.com")
+    assert "processeur" in text
+    assert "http" not in text
+    assert "🙂" not in text
+    assert text.endswith(".")
+
+
+def test_shell_prefers_kokoro_and_keeps_piper_fallback():
+    header = read("shell/src/CompanionBridge.h")
+    impl = read("shell/src/CompanionBridge.cpp")
+    page = read("shell/qml/pages/CompanionPage.qml")
+    provision = read("scripts/provision-final-ai.sh")
+    assert "voiceEngine" in header
+    assert "neuralVoiceAvailable" in impl
+    assert '"ff_siwis"' in impl
+    assert '"Kokoro 82M · français"' in impl
+    assert "speakPiper(clean)" in impl
+    assert "Moteur vocal · " in page
+    assert "kokoro>=0.9.4" in provision
+    assert "qvoice_neural.py" in provision
+
+
+def test_voice_adapter_is_local_bounded_and_no_shell_execution():
+    service = read("services/qvoice_neural.py")
+    assert "MAX_CHARS" in service
+    assert 'KPipeline(lang_code="f")' in service
+    assert 'DEFAULT_VOICE = "ff_siwis"' in service
+    assert "HF_HUB_DISABLE_TELEMETRY" in service
+    assert "subprocess" not in service
