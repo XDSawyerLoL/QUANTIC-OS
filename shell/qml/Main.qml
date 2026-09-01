@@ -121,14 +121,8 @@ ApplicationWindow {
                 MenuItem { text: "Personnel"; onTriggered: backend.setActiveMission(text) }
                 MenuItem { text: "Création"; onTriggered: backend.setActiveMission(text) }
                 MenuSeparator { }
-                MenuItem {
-                    text: "Restaurer la Mission"
-                    onTriggered: { win.lastCommand = "Restauration de la Mission · " + win.activeMission; backend.restoreActiveMission() }
-                }
-                MenuItem {
-                    text: "Enregistrer la Mission"
-                    onTriggered: { win.lastCommand = "Enregistrement de la Mission · " + win.activeMission; backend.rememberDesktopState() }
-                }
+                MenuItem { text: "Restaurer la Mission"; onTriggered: { win.lastCommand = "Restauration de la Mission · " + win.activeMission; backend.restoreActiveMission() } }
+                MenuItem { text: "Enregistrer la Mission"; onTriggered: { win.lastCommand = "Enregistrement de la Mission · " + win.activeMission; backend.rememberDesktopState() } }
             }
         }
 
@@ -139,15 +133,7 @@ ApplicationWindow {
             radius: 15 * win.uiScale
             color: "#A6121925"
             border.color: "#2F3A4D"
-            Text {
-                id: activityText
-                anchors.centerIn: parent
-                width: parent.width - 24 * win.uiScale
-                elide: Text.ElideRight
-                text: "● Quantic — " + win.lastCommand
-                color: "#ABB6C9"
-                font.pixelSize: 12 * win.uiScale
-            }
+            Text { id: activityText; anchors.centerIn: parent; width: parent.width - 24 * win.uiScale; elide: Text.ElideRight; text: "● Quantic — " + win.lastCommand; color: "#ABB6C9"; font.pixelSize: 12 * win.uiScale }
         }
     }
 
@@ -189,7 +175,12 @@ ApplicationWindow {
                 radius: 15 * win.uiScale
                 color: hover.containsMouse ? "#CC182131" : "#80121925"
                 border.color: hover.containsMouse ? "#4A5970" : "#293447"
-                Row { anchors.centerIn: parent; spacing: 7 * win.uiScale; Text { text: modelData[0]; color: "#AAA2FF"; font.pixelSize: 13 * win.uiScale }; Text { visible: modelData[1] === "Réglages"; text: Qt.formatDateTime(new Date(), "HH:mm"); color: "#D4DBE7"; font.pixelSize: 12 * win.uiScale } }
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 7 * win.uiScale
+                    Text { text: modelData[0]; color: "#AAA2FF"; font.pixelSize: 13 * win.uiScale }
+                    Text { visible: modelData[1] === "Réglages"; text: Qt.formatDateTime(new Date(), "HH:mm"); color: "#D4DBE7"; font.pixelSize: 12 * win.uiScale }
+                }
                 MouseArea { id: hover; anchors.fill: parent; hoverEnabled: true; onClicked: { if (modelData[1] === "Q‑Snap") qsnap.open(); else if (modelData[1] === "Notifications") notifications.open(); else quickSettings.open() } }
             }
         }
@@ -210,49 +201,12 @@ ApplicationWindow {
         ResourcesPage { }
     }
 
-    QOrb {
-        id: desktopOrb
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 28 * win.uiScale
-        anchors.bottomMargin: 22 * win.uiScale
-        uiScale: 0.72 * win.uiScale
-        state: companionBridge.state
-        busy: backend.companionBusy
-        z: 58
-        onActivated: win.currentPage = "Compagnon"
-        onHoldVoice: companionBridge.listenOnce()
-    }
-
-    QBar {
-        id: qbar
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 18 * win.uiScale
-        uiScale: win.uiScale
-        currentPage: win.currentPage
-        z: 50
-        onNavigate: function(page) { win.currentPage = page }
-        onCommandCenter: qspace.open()
-        onCompanion: { win.currentPage = "Compagnon" }
-    }
-
-    QSpace {
-        id: qspace
-        uiScale: win.uiScale
-        onNavigate: function(page) { win.currentPage = page }
-        onRunPrompt: function(prompt) { win.lastCommand = prompt; backend.askCompanion(prompt); win.currentPage = "Compagnon" }
-    }
+    QOrb { id: desktopOrb; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.rightMargin: 28 * win.uiScale; anchors.bottomMargin: 22 * win.uiScale; uiScale: 0.72 * win.uiScale; state: companionBridge.state; busy: backend.companionBusy; z: 58; onActivated: win.currentPage = "Compagnon"; onHoldVoice: companionBridge.listenOnce() }
+    QBar { id: qbar; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 18 * win.uiScale; uiScale: win.uiScale; currentPage: win.currentPage; z: 50; onNavigate: function(page) { win.currentPage = page }; onCommandCenter: qspace.open(); onCompanion: { win.currentPage = "Compagnon" } }
+    QSpace { id: qspace; uiScale: win.uiScale; onNavigate: function(page) { win.currentPage = page }; onRunPrompt: function(prompt) { win.lastCommand = prompt; backend.askCompanion(prompt); win.currentPage = "Compagnon" } }
 
     QuickSettings { id: quickSettings; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100 }
     NotificationCenter { id: notifications; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100 }
-    QSnap {
-        id: qsnap
-        uiScale: win.uiScale
-        x: win.width - width - 26 * win.uiScale
-        y: 72 * win.uiScale
-        z: 100
-        onLayoutChosen: function(layoutId) { win.activeLayout = layoutId; win.lastCommand = "Disposition Q‑Snap · " + layoutId; backend.applyWindowLayout(layoutId) }
-    }
+    QSnap { id: qsnap; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100; onLayoutChosen: function(layoutId) { win.activeLayout = layoutId; win.lastCommand = "Disposition Q‑Snap · " + layoutId; backend.applyWindowLayout(layoutId) } }
     AuthorizationSheet { id: authorizationSheet; uiScale: win.uiScale; x: Math.round((win.width - width) / 2); y: Math.round((win.height - height) / 2); z: 300 }
 }
