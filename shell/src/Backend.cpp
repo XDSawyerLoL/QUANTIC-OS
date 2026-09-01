@@ -37,6 +37,12 @@ static QString windowBridgePath() {
     const QString local=QDir(QCoreApplication::applicationDirPath()).filePath("../../services/qwindow_bridge.py");
     return QDir::cleanPath(local);
 }
+static QString qagentPath() {
+    const QString installed="/usr/lib/quantic/services/qagent.py";
+    if(QFile::exists(installed)) return installed;
+    const QString local=QDir(QCoreApplication::applicationDirPath()).filePath("../../services/qagent.py");
+    return QDir::cleanPath(local);
+}
 static QString missionStateId(const QString &mission) {
     static const QHash<QString,QString> ids={{"Quantic OS","mission-quantic-os"},{"Personnel","mission-personnel"},{"Création","mission-creation"}};
     return ids.value(mission);
@@ -167,5 +173,28 @@ void Backend::applyWindowLayout(const QString &layoutId){
 }
 void Backend::optimize(){QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int,QProcess::ExitStatus){const QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();m_activityTitle="Analyse Q-Resource terminée";m_activityDetail=out.isEmpty()?"Aucune modification risquée n’a été appliquée. Les décisions restent réversibles et mesurables.":out.left(420);m_companion="J’ai analysé les ressources. Les modifications critiques restent hors de portée du modèle IA.";emit metricsChanged();emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qresource.py"});}
 void Backend::openDestination(const QString &name){if(name=="Fichiers")launchApp("files");else if(name=="Apps"||name=="AppsNative")launchApp("discover");else if(name=="Paramètres")launchApp("settings");else if(name=="Terminal")launchApp("terminal");else if(name=="Bridge")QProcess::startDetached("konsole",{"-e","python3","/usr/lib/quantic/services/qbridge.py","--help"});else if(name=="Lab")runLab("chsh");}
-void Backend::askCompanion(const QString &prompt){if(prompt.trimmed().isEmpty()||m_companionBusy)return;m_companionBusy=true;m_companion="Je réfléchis localement…";emit companionChanged();QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int code,QProcess::ExitStatus){QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();if(out.isEmpty())out=QString::fromUtf8(p->readAllStandardError()).trimmed();if(code!=0&&out.isEmpty())out="Le moteur IA local n’est pas encore configuré. Installe un modèle depuis Q-Model Hub.";m_companion=out.left(4000);m_companionBusy=false;emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qagent.py",prompt});}
+void Backend::askCompanion(const QString &prompt){
+    if(prompt.trimmed().isEmpty()||m_companionBusy)return;
+    m_companionBusy=true;m_companionStreamBuffer.clear();m_companion="Je réfléchis localement…";emit companionChanged();
+    QProcess *p=new QProcess(this);
+    const auto consume=[this,p](){
+        while(p->canReadLine()){
+            const QByteArray line=p->readLine().trimmed();if(line.isEmpty())continue;
+            QJsonParseError err;const auto doc=QJsonDocument::fromJson(line,&err);if(err.error!=QJsonParseError::NoError||!doc.isObject())continue;
+            const auto o=doc.object();if(o.value("type").toString()!="delta")continue;
+            const QString delta=o.value("text").toString();if(delta.isEmpty())continue;
+            m_companionStreamBuffer+=delta;if(m_companionStreamBuffer.size()>4000)m_companionStreamBuffer=m_companionStreamBuffer.right(4000);
+            m_companion=m_companionStreamBuffer;emit companionDelta(delta);emit companionChanged();
+        }
+    };
+    connect(p,&QProcess::readyReadStandardOutput,this,consume);
+    connect(p,&QProcess::finished,this,[this,p,consume](int code,QProcess::ExitStatus){
+        consume();
+        QString error=QString::fromUtf8(p->readAllStandardError()).trimmed();
+        if(m_companionStreamBuffer.trimmed().isEmpty())m_companion=(code==0?"":error);
+        if(m_companion.trimmed().isEmpty())m_companion="Le moteur IA local n’est pas encore configuré. Installe un modèle depuis Q-Model Hub.";
+        m_companionBusy=false;emit companionChanged();emit companionStreamFinished();p->deleteLater();
+    });
+    p->start("/usr/bin/python3",{qagentPath(),"--stream-ndjson",prompt});
+}
 void Backend::runLab(const QString &experiment){const QString exp=(experiment=="bell")?"bell":"chsh";m_labOutput="Exécution de Q-Core…";emit labChanged();QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int,QProcess::ExitStatus){QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();if(out.isEmpty())out=QString::fromUtf8(p->readAllStandardError()).trimmed();m_labOutput=out;emit labChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qcore.py",exp});}
