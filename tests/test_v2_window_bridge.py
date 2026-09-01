@@ -1,10 +1,12 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("qwindow_bridge", ROOT / "services" / "qwindow_bridge.py")
-qwb = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
+qwb = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = qwb
 SPEC.loader.exec_module(qwb)
 
 
