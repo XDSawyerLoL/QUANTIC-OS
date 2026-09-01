@@ -15,19 +15,13 @@ ApplicationWindow {
     property string activeMission: "Quantic OS"
     property string companionState: "prêt"
     property string lastCommand: ""
+    property string activeLayout: "focus"
     property real uiScale: Math.max(0.82, Math.min(width / 1920, height / 1080))
 
-    Shortcut {
-        sequence: "Meta+Space"
-        onActivated: qspace.open()
-    }
-    Shortcut {
-        sequence: "Meta+Q"
-        onActivated: {
-            win.currentPage = "Compagnon"
-            win.companionState = "à l'écoute"
-        }
-    }
+    Shortcut { sequence: "Meta+Space"; onActivated: qspace.open() }
+    Shortcut { sequence: "Meta+Q"; onActivated: { win.currentPage = "Compagnon"; win.companionState = "à l'écoute" } }
+    Shortcut { sequence: "Meta+N"; onActivated: notifications.open() }
+    Shortcut { sequence: "Meta+S"; onActivated: qsnap.open() }
 
     Rectangle {
         anchors.fill: parent
@@ -50,7 +44,6 @@ ApplicationWindow {
         layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 64 }
     }
 
-    // Lightweight desktop header: mission identity, not a permanent dashboard.
     RowLayout {
         anchors.left: parent.left
         anchors.top: parent.top
@@ -72,11 +65,7 @@ ApplicationWindow {
                 Text { text: win.activeMission; color: "#E8ECF5"; font.pixelSize: 13 * win.uiScale; font.weight: Font.Medium }
                 Text { text: "⌄"; color: "#7F8BA0"; font.pixelSize: 12 * win.uiScale }
             }
-            MouseArea {
-                anchors.fill: parent
-                onClicked: missionMenu.open()
-            }
-
+            MouseArea { anchors.fill: parent; onClicked: missionMenu.open() }
             Menu {
                 id: missionMenu
                 y: parent.height + 6
@@ -105,13 +94,48 @@ ApplicationWindow {
         }
     }
 
+    Row {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: 26 * win.uiScale
+        anchors.topMargin: 22 * win.uiScale
+        spacing: 8 * win.uiScale
+        z: 25
+
+        Repeater {
+            model: [["▦","Q‑Snap"],["●","Notifications"],["⌁","Réglages"]]
+            delegate: Rectangle {
+                width: modelData[1] === "Réglages" ? 118 * win.uiScale : 46 * win.uiScale
+                height: 42 * win.uiScale
+                radius: 15 * win.uiScale
+                color: hover.containsMouse ? "#CC182131" : "#80121925"
+                border.color: hover.containsMouse ? "#4A5970" : "#293447"
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 7 * win.uiScale
+                    Text { text: modelData[0]; color: "#AAA2FF"; font.pixelSize: 13 * win.uiScale }
+                    Text { visible: modelData[1] === "Réglages"; text: Qt.formatDateTime(new Date(), "HH:mm"); color: "#D4DBE7"; font.pixelSize: 12 * win.uiScale }
+                }
+                MouseArea {
+                    id: hover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: {
+                        if (modelData[1] === "Q‑Snap") qsnap.open()
+                        else if (modelData[1] === "Notifications") notifications.open()
+                        else quickSettings.open()
+                    }
+                }
+            }
+        }
+    }
+
     StackLayout {
         id: pages
         anchors.fill: parent
         anchors.topMargin: 66 * win.uiScale
         anchors.bottomMargin: 94 * win.uiScale
         currentIndex: ["Accueil", "Apps", "Fichiers", "Compagnon", "Lab", "Paramètres", "Ressources"].indexOf(win.currentPage)
-
         HomePage { onNavigate: function(page) { win.currentPage = page } }
         AppsPage { }
         FilesPage { }
@@ -131,10 +155,7 @@ ApplicationWindow {
         z: 50
         onNavigate: function(page) { win.currentPage = page }
         onCommandCenter: qspace.open()
-        onCompanion: {
-            win.currentPage = "Compagnon"
-            win.companionState = "à l'écoute"
-        }
+        onCompanion: { win.currentPage = "Compagnon"; win.companionState = "à l'écoute" }
     }
 
     QSpace {
@@ -144,27 +165,36 @@ ApplicationWindow {
         onRunPrompt: function(prompt) {
             win.lastCommand = prompt
             win.companionState = "en action"
+            backend.askCompanion(prompt)
             win.currentPage = "Compagnon"
         }
     }
 
-    // First-run affordance: discoverable without cluttering the desktop.
-    Rectangle {
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.rightMargin: 26 * win.uiScale
-        anchors.topMargin: 22 * win.uiScale
-        width: 250 * win.uiScale
-        height: 42 * win.uiScale
-        radius: 15 * win.uiScale
-        color: "#80121925"
-        border.color: "#293447"
-        z: 20
-        Row {
-            anchors.centerIn: parent
-            spacing: 8 * win.uiScale
-            Text { text: "Super + Espace"; color: "#9E95FF"; font.pixelSize: 12 * win.uiScale; font.weight: Font.Medium }
-            Text { text: "Q-Space"; color: "#9AA6BA"; font.pixelSize: 12 * win.uiScale }
+    QuickSettings {
+        id: quickSettings
+        uiScale: win.uiScale
+        x: win.width - width - 26 * win.uiScale
+        y: 72 * win.uiScale
+        z: 100
+    }
+
+    NotificationCenter {
+        id: notifications
+        uiScale: win.uiScale
+        x: win.width - width - 26 * win.uiScale
+        y: 72 * win.uiScale
+        z: 100
+    }
+
+    QSnap {
+        id: qsnap
+        uiScale: win.uiScale
+        x: win.width - width - 26 * win.uiScale
+        y: 72 * win.uiScale
+        z: 100
+        onLayoutChosen: function(layoutId) {
+            win.activeLayout = layoutId
+            win.lastCommand = "Disposition Q‑Snap · " + layoutId
         }
     }
 }
