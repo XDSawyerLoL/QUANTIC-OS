@@ -8,47 +8,111 @@ ApplicationWindow {
     id: win
     visible: true
     visibility: Window.FullScreen
-    color: "#040811"
+    color: "#04070D"
     title: "Quantic OS"
+
     property string currentPage: "Accueil"
+    property string activeMission: "Quantic OS"
+    property string companionState: "prêt"
+    property string lastCommand: ""
     property real uiScale: Math.max(0.82, Math.min(width / 1920, height / 1080))
 
-    Rectangle {
-        anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#030810" }
-            GradientStop { position: 0.42; color: "#07101F" }
-            GradientStop { position: 1.0; color: "#04070E" }
+    Shortcut {
+        sequence: "Meta+Space"
+        onActivated: qspace.open()
+    }
+    Shortcut {
+        sequence: "Meta+Q"
+        onActivated: {
+            win.currentPage = "Compagnon"
+            win.companionState = "à l'écoute"
         }
     }
 
     Rectangle {
-        width: parent.width * 0.62
-        height: parent.height * 0.85
-        x: parent.width * 0.20
-        y: parent.height * 0.06
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#03070C" }
+            GradientStop { position: 0.46; color: "#07101B" }
+            GradientStop { position: 1.0; color: "#04070D" }
+        }
+    }
+
+    Rectangle {
+        width: parent.width * 0.64
+        height: parent.height * 0.72
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
         radius: height / 2
-        color: "#151D4B"
-        opacity: 0.14
+        color: "#243067"
+        opacity: 0.07
         layer.enabled: true
-        layer.effect: MultiEffect {
-            blurEnabled: true
-            blur: 1.0
-            blurMax: 64
+        layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 64 }
+    }
+
+    // Lightweight desktop header: mission identity, not a permanent dashboard.
+    RowLayout {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: 28 * win.uiScale
+        anchors.topMargin: 22 * win.uiScale
+        spacing: 10 * win.uiScale
+        z: 20
+
+        Rectangle {
+            Layout.preferredWidth: 185 * win.uiScale
+            Layout.preferredHeight: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#A6121925"
+            border.color: "#2F3A4D"
+            Row {
+                anchors.centerIn: parent
+                spacing: 9 * win.uiScale
+                Rectangle { width: 8 * win.uiScale; height: width; radius: width / 2; color: "#8177FF" }
+                Text { text: win.activeMission; color: "#E8ECF5"; font.pixelSize: 13 * win.uiScale; font.weight: Font.Medium }
+                Text { text: "⌄"; color: "#7F8BA0"; font.pixelSize: 12 * win.uiScale }
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: missionMenu.open()
+            }
+
+            Menu {
+                id: missionMenu
+                y: parent.height + 6
+                MenuItem { text: "Quantic OS"; onTriggered: win.activeMission = text }
+                MenuItem { text: "Personnel"; onTriggered: win.activeMission = text }
+                MenuItem { text: "Création"; onTriggered: win.activeMission = text }
+            }
+        }
+
+        Rectangle {
+            visible: win.lastCommand.length > 0
+            Layout.preferredWidth: Math.min(activityText.implicitWidth + 34 * win.uiScale, 510 * win.uiScale)
+            Layout.preferredHeight: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#A6121925"
+            border.color: "#2F3A4D"
+            Text {
+                id: activityText
+                anchors.centerIn: parent
+                width: parent.width - 24 * win.uiScale
+                elide: Text.ElideRight
+                text: "● Quantic — " + win.lastCommand
+                color: "#ABB6C9"
+                font.pixelSize: 12 * win.uiScale
+            }
         }
     }
 
     StackLayout {
         id: pages
         anchors.fill: parent
-        anchors.bottomMargin: Math.max(98, 104 * win.uiScale)
+        anchors.topMargin: 66 * win.uiScale
+        anchors.bottomMargin: 94 * win.uiScale
         currentIndex: ["Accueil", "Apps", "Fichiers", "Compagnon", "Lab", "Paramètres", "Ressources"].indexOf(win.currentPage)
 
-        HomePage {
-            onNavigate: function(page) {
-                win.currentPage = page
-            }
-        }
+        HomePage { onNavigate: function(page) { win.currentPage = page } }
         AppsPage { }
         FilesPage { }
         CompanionPage { }
@@ -57,91 +121,50 @@ ApplicationWindow {
         ResourcesPage { }
     }
 
-    GlassPanel {
-        id: dock
-        width: 650 * win.uiScale
-        height: 92 * win.uiScale
+    QBar {
+        id: qbar
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 18
-        radius: 24
-
-        Row {
-            anchors.centerIn: parent
-            spacing: 1
-
-            Repeater {
-                model: [
-                    ["Accueil", "assets/icons/home.svg"],
-                    ["Apps", "assets/icons/apps.svg"],
-                    ["Fichiers", "assets/icons/folder.svg"],
-                    ["Compagnon", "assets/icons/companion.svg"],
-                    ["Lab", "assets/icons/lab.svg"],
-                    ["Paramètres", "assets/icons/settings.svg"]
-                ]
-
-                DockButton {
-                    width: dock.width / 6.25
-                    height: dock.height - 8
-                    title: modelData[0]
-                    iconSource: modelData[1]
-                    selected: win.currentPage === modelData[0]
-                    onActivated: win.currentPage = modelData[0]
-                }
-            }
+        anchors.bottomMargin: 18 * win.uiScale
+        uiScale: win.uiScale
+        currentPage: win.currentPage
+        z: 50
+        onNavigate: function(page) { win.currentPage = page }
+        onCommandCenter: qspace.open()
+        onCompanion: {
+            win.currentPage = "Compagnon"
+            win.companionState = "à l'écoute"
         }
     }
 
+    QSpace {
+        id: qspace
+        uiScale: win.uiScale
+        onNavigate: function(page) { win.currentPage = page }
+        onRunPrompt: function(prompt) {
+            win.lastCommand = prompt
+            win.companionState = "en action"
+            win.currentPage = "Compagnon"
+        }
+    }
+
+    // First-run affordance: discoverable without cluttering the desktop.
     Rectangle {
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 24
-        anchors.bottomMargin: 22
-        width: 248
-        height: 56
-        radius: 18
-        color: "#111824"
-        opacity: 0.93
-        border.color: "#34435B"
-
+        anchors.top: parent.top
+        anchors.rightMargin: 26 * win.uiScale
+        anchors.topMargin: 22 * win.uiScale
+        width: 250 * win.uiScale
+        height: 42 * win.uiScale
+        radius: 15 * win.uiScale
+        color: "#80121925"
+        border.color: "#293447"
+        z: 20
         Row {
             anchors.centerIn: parent
-            spacing: 14
-
-            Image {
-                source: "assets/icons/wifi.svg"
-                width: 19
-                height: 19
-            }
-            Image {
-                source: "assets/icons/speaker.svg"
-                width: 19
-                height: 19
-            }
-            Text {
-                text: backend.volumeText
-                color: "#C9D2E3"
-                font.pixelSize: 12
-            }
-            Text {
-                id: clock
-                text: Qt.formatDateTime(new Date(), "HH:mm")
-                color: "#F1F3F8"
-                font.pixelSize: 17
-            }
-            Text {
-                text: "Q"
-                color: "#796DFF"
-                font.pixelSize: 24
-                font.weight: Font.Bold
-            }
-        }
-
-        Timer {
-            interval: 1000
-            running: true
-            repeat: true
-            onTriggered: clock.text = Qt.formatDateTime(new Date(), "HH:mm")
+            spacing: 8 * win.uiScale
+            Text { text: "Super + Espace"; color: "#9E95FF"; font.pixelSize: 12 * win.uiScale; font.weight: Font.Medium }
+            Text { text: "Q-Space"; color: "#9AA6BA"; font.pixelSize: 12 * win.uiScale }
         }
     }
 }
