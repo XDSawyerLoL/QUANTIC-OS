@@ -116,6 +116,25 @@ def test_companion_has_local_push_to_talk_and_orb_presence():
     assert "CompanionBridge.cpp" in cmake and "QOrb.qml" in cmake
 
 
+def test_companion_voice_is_natural_french_and_auto_replies():
+    agent = read("services/qagent.py")
+    header = read("shell/src/CompanionBridge.h")
+    impl = read("shell/src/CompanionBridge.cpp")
+    main = read("shell/qml/Main.qml")
+    page = read("shell/qml/pages/CompanionPage.qml")
+    assert "Réponds en français par défaut" in agent
+    assert "N'utilise pas d'emoji" in agent
+    assert "Q_PROPERTY(bool autoSpeak" in header
+    assert "naturalSpeechText" in impl
+    assert "1F000" in impl and "1FAFF" in impl
+    assert '"--length_scale","0.94"' in impl
+    assert '"--sentence_silence","0.16"' in impl
+    assert "companionWasBusy" in main
+    assert "companionBridge.autoSpeak" in main
+    assert 'Initialisation terminée. Quantic est prêt.' in main
+    assert 'text: "Réponses vocales"' in page
+
+
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
     for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml", "QOrb.qml"]:
