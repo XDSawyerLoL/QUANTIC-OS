@@ -1,0 +1,17 @@
+[Unit]
+Description=Quantic Q-Dream memory consolidation
+After=quantic-core.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qdream_runner.py
+Nice=10
+IOSchedulingClass=idle
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/quantic/memory
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
