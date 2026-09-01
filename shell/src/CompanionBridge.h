@@ -41,6 +41,8 @@ private:
     QString neuralVoiceAdapter() const;
     bool neuralVoiceAvailable() const;
     QString naturalSpeechText(const QString &text) const;
+    QStringList speechChunks(const QString &text) const;
+    bool synthesizeNextChunk();
     bool speakPiper(const QString &text);
     void playWave(const QString &wavPath, QObject *cleanupOwner=nullptr);
     void setState(const QString &state);
@@ -52,6 +54,8 @@ private:
     bool m_speaking=false;
     bool m_listening=false;
     bool m_autoSpeak=true;
+    bool m_stopRequested=false;
+    QStringList m_speechQueue;
     QProcess *m_speech=nullptr;
     QProcess *m_listener=nullptr;
 };
