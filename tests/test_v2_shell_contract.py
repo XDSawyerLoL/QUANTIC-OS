@@ -128,7 +128,8 @@ def test_companion_voice_is_natural_french_and_auto_replies():
     assert "naturalSpeechText" in impl
     assert "1F000" in impl and "1FAFF" in impl
     assert '"--length_scale","0.94"' in impl
-    assert '"--sentence_silence","0.16"' in impl
+    assert '"--sentence_silence","0.10"' in impl
+    assert "speechChunks" in impl
     assert "companionWasBusy" in main
     assert "companionBridge.autoSpeak" in main
     assert 'Initialisation terminée. Quantic est prêt.' in main
