@@ -15,7 +15,6 @@ def context_for_goal(goal: Goal | dict[str, Any], *, store=None, graph=None, lim
     else:
         title=str(goal.get("title","")); goal_id=str(goal.get("id","")); success=list(goal.get("success_criteria",[]))
     query=" ".join([title,*[str(x) for x in success]])
-    # First search goal-local evidence, then durable user memory only if needed.
     local=retrieve(query,namespace=f"goal:{goal_id}",store=store,graph=graph,limit=limit)
     evidence=list(local["evidence"])
     if len(evidence)<limit:
@@ -23,6 +22,26 @@ def context_for_goal(goal: Goal | dict[str, Any], *, store=None, graph=None, lim
         keys={(x.get("view"),x.get("memory_id"),str(x.get("content"))) for x in evidence}
         for item in durable["evidence"]:
             key=(item.get("view"),item.get("memory_id"),str(item.get("content")))
-            if key not in keys: evidence.append(item); keys.add(key)
+            if key not in keys:
+                evidence.append(item); keys.add(key)
     evidence=sorted(evidence,key=lambda x:(float(x.get("score",0)),float(x.get("confidence",0))),reverse=True)[:limit]
-    return {"query":query,"goal_id":goal_id,"intent":local["intent"],"evidence":evidence,"abstain":not bool(evidence)}
+    memories=[]
+    for item in evidence:
+        if item.get("view") != "memory":
+            continue
+        memories.append({
+            "id": item.get("memory_id"),
+            "kind": item.get("content",{}).get("kind") if isinstance(item.get("content"),dict) else None,
+            "content": item.get("content"),
+            "confidence": item.get("confidence",0.0),
+            "score": item.get("score",0.0),
+            "provenance": item.get("provenance",{}),
+        })
+    return {
+        "query":query,
+        "goal_id":goal_id,
+        "intent":local["intent"],
+        "evidence":evidence,
+        "memories":memories[:limit],
+        "abstain":not bool(evidence),
+    }
