@@ -2,7 +2,7 @@
 """Quantic premium local neural voice adapter.
 
 Adaptive engines:
-- Chatterbox Multilingual on a capable CUDA machine for maximum naturalness,
+- Chatterbox Multilingual V3 on a capable CUDA machine for maximum naturalness,
   expressive control and French zero-shot speech.
 - Kokoro-82M for low-latency local conversation, especially on CPU.
 - Piper remains the shell-level emergency fallback.
@@ -27,6 +27,7 @@ from typing import Any
 MAX_CHARS = 1800
 DEFAULT_VOICE = "ff_siwis"
 DEFAULT_HF_HOME = "/usr/share/quantic/models/hf"
+DEFAULT_REFERENCE = Path.home() / ".local/share/quantic/voices/quantic-female-reference.wav"
 os.environ.setdefault("HF_HOME", DEFAULT_HF_HOME)
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -98,7 +99,11 @@ class VoiceRuntime:
         self.speed = speed
         self._chatterbox: Any = None
         self._chatterbox_device = "cpu"
+        self._chatterbox_version = "unknown"
         self._kokoro: Any = None
+        configured_reference = os.environ.get("QUANTIC_VOICE_REFERENCE", "").strip()
+        configured_path = Path(configured_reference).expanduser() if configured_reference else None
+        self.reference = configured_path if configured_path and configured_path.is_file() else (DEFAULT_REFERENCE if DEFAULT_REFERENCE.is_file() else None)
 
     def _load_chatterbox(self) -> None:
         if self._chatterbox is not None:
@@ -107,7 +112,12 @@ class VoiceRuntime:
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
         self._chatterbox_device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._chatterbox = ChatterboxMultilingualTTS.from_pretrained(device=self._chatterbox_device)
+        try:
+            self._chatterbox = ChatterboxMultilingualTTS.from_pretrained(device=self._chatterbox_device, t3_model="v3")
+            self._chatterbox_version = "v3"
+        except TypeError:
+            self._chatterbox = ChatterboxMultilingualTTS.from_pretrained(device=self._chatterbox_device)
+            self._chatterbox_version = "legacy"
 
     def _load_kokoro(self) -> None:
         if self._kokoro is not None:
@@ -116,19 +126,47 @@ class VoiceRuntime:
 
         self._kokoro = KPipeline(lang_code="f")
 
+    def _ensure_female_reference(self) -> Path | None:
+        if self.reference and self.reference.is_file():
+            return self.reference
+        if not kokoro_available():
+            return None
+        try:
+            import numpy as np
+            import soundfile as sf
+
+            self._load_kokoro()
+            reference_text = "Bonjour. Je suis Quantic, votre assistante locale. Je parle avec une voix calme, naturelle, claire et posée, sans précipitation."
+            chunks = [audio for _g, _p, audio in self._kokoro(reference_text, voice=DEFAULT_VOICE, speed=0.98)]
+            if not chunks:
+                return None
+            DEFAULT_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
+            sf.write(str(DEFAULT_REFERENCE), np.concatenate(chunks), 24000)
+            self.reference = DEFAULT_REFERENCE
+            return self.reference
+        except Exception:
+            return None
+
     def warmup(self) -> dict:
         try:
             if self.selected == "chatterbox":
+                self._ensure_female_reference()
                 self._load_chatterbox()
             elif self.selected == "kokoro":
                 self._load_kokoro()
-            return {"ok": self.selected != "none", "selected": self.selected, "cuda": cuda_capable()}
+            return {
+                "ok": self.selected != "none",
+                "selected": self.selected,
+                "cuda": cuda_capable(),
+                "reference": bool(self.reference and self.reference.is_file()),
+                "model_version": self._chatterbox_version if self.selected == "chatterbox" else "n/a",
+            }
         except Exception as exc:
             if self.requested_engine == "auto" and self.selected == "chatterbox" and kokoro_available():
                 self.selected = "kokoro"
                 try:
                     self._load_kokoro()
-                    return {"ok": True, "selected": self.selected, "cuda": cuda_capable(), "fallback": "kokoro"}
+                    return {"ok": True, "selected": self.selected, "cuda": cuda_capable(), "fallback": "kokoro", "reference": False, "model_version": "n/a"}
                 except Exception:
                     pass
             return {"ok": False, "selected": self.selected, "error": f"{type(exc).__name__}: {exc}"[:240]}
@@ -149,10 +187,21 @@ class VoiceRuntime:
                 import torchaudio as ta
 
                 self._load_chatterbox()
-                wav = self._chatterbox.generate(clean, language_id="fr", exaggeration=0.42, cfg_weight=0.38)
+                reference = self._ensure_female_reference()
+                kwargs = {"language_id": "fr", "exaggeration": 0.42, "cfg_weight": 0.32}
+                if reference:
+                    kwargs["audio_prompt_path"] = str(reference)
+                wav = self._chatterbox.generate(clean, **kwargs)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 ta.save(str(output), wav, self._chatterbox.sr)
-                return {"ok": True, "engine": "chatterbox-multilingual", "device": self._chatterbox_device, "sample_rate": int(self._chatterbox.sr), "chars": len(clean)}
+                return {
+                    "ok": True,
+                    "engine": "chatterbox-multilingual-v3" if self._chatterbox_version == "v3" else "chatterbox-multilingual",
+                    "device": self._chatterbox_device,
+                    "sample_rate": int(self._chatterbox.sr),
+                    "chars": len(clean),
+                    "reference": bool(reference),
+                }
             except Exception as exc:
                 if self.requested_engine != "auto" or not kokoro_available():
                     return {"ok": False, "error": "chatterbox-failed", "detail": f"{type(exc).__name__}: {exc}"[:240]}
@@ -198,6 +247,7 @@ def serve(runtime: VoiceRuntime, *, warm: bool = True) -> int:
         raw = raw.strip()
         if not raw:
             continue
+        request: dict[str, Any] = {}
         try:
             request = json.loads(raw)
             request_id = int(request.get("id", 0))
@@ -209,7 +259,7 @@ def serve(runtime: VoiceRuntime, *, warm: bool = True) -> int:
             speed = float(request.get("speed", runtime.speed))
             result = runtime.synthesize(text, Path(output_text), voice=voice, speed=speed)
         except Exception as exc:
-            request_id = int(request.get("id", 0)) if isinstance(locals().get("request"), dict) else 0
+            request_id = int(request.get("id", 0)) if isinstance(request, dict) else 0
             result = {"ok": False, "error": "invalid-request", "detail": f"{type(exc).__name__}: {exc}"[:200]}
         print(json.dumps({"type": "result", "id": request_id, **result}, ensure_ascii=False, separators=(",", ":")), flush=True)
     return 0
