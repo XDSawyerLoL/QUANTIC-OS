@@ -73,6 +73,7 @@ ApplicationWindow {
                 MenuItem { text: "Personnel"; onTriggered: backend.setActiveMission(text) }
                 MenuItem { text: "Création"; onTriggered: backend.setActiveMission(text) }
                 MenuSeparator { }
+                MenuItem { text: "Restaurer les applications"; onTriggered: backend.restoreActiveMission() }
                 MenuItem { text: "Enregistrer l’état"; onTriggered: backend.rememberDesktopState() }
             }
         }
