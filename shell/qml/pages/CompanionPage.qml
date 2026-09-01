@@ -7,14 +7,6 @@ Item {
     id: root
     property real unit: Math.max(0.8, Math.min(width / 1920, height / 1080))
 
-    Connections {
-        target: companionBridge
-        function onTranscriptReady(text) {
-            input.text = text
-            backend.askCompanion(text)
-        }
-    }
-
     Text {
         x: 54 * root.unit
         y: 44 * root.unit
@@ -91,7 +83,7 @@ Item {
                 id: input
                 Layout.fillWidth: true
                 Layout.preferredHeight: 92 * root.unit
-                placeholderText: "Parler à Quantic…"
+                placeholderText: companionBridge.lastTranscript.length > 0 ? companionBridge.lastTranscript : "Parler à Quantic…"
                 wrapMode: TextEdit.Wrap
             }
 
@@ -100,21 +92,11 @@ Item {
                 Button {
                     text: backend.companionBusy ? "Réflexion…" : "Envoyer"
                     enabled: !backend.companionBusy && input.text.trim().length > 0
-                    onClicked: {
-                        backend.askCompanion(input.text)
-                        input.clear()
-                    }
+                    onClicked: { backend.askCompanion(input.text); input.clear() }
                 }
-                Button {
-                    text: "Analyser le système"
-                    onClicked: backend.optimize()
-                }
+                Button { text: "Analyser le système"; onClicked: backend.optimize() }
                 Item { Layout.fillWidth: true }
-                Text {
-                    text: "Maintiens le Q-Orb pour parler"
-                    color: "#76849A"
-                    font.pixelSize: 11 * root.unit
-                }
+                Text { text: "Maintiens le Q-Orb pour parler"; color: "#76849A"; font.pixelSize: 11 * root.unit }
             }
         }
     }
