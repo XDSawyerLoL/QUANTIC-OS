@@ -16,12 +16,21 @@ ApplicationWindow {
     property string companionState: companionBridge.state
     property string lastCommand: ""
     property string activeLayout: "focus"
+    property string lastSpokenResponse: ""
+    property bool companionWasBusy: false
     property real uiScale: Math.max(0.82, Math.min(width / 1920, height / 1080))
 
     Shortcut { sequence: "Meta+Space"; onActivated: qspace.open() }
     Shortcut { sequence: "Meta+Q"; onActivated: { win.currentPage = "Compagnon" } }
     Shortcut { sequence: "Meta+N"; onActivated: notifications.open() }
     Shortcut { sequence: "Meta+S"; onActivated: qsnap.open() }
+
+    Timer {
+        interval: 1800
+        running: true
+        repeat: false
+        onTriggered: companionBridge.speak("Initialisation terminée. Quantic est prêt. Tous les services locaux disponibles sont opérationnels.")
+    }
 
     Connections {
         target: authorizationBridge
@@ -41,6 +50,23 @@ ApplicationWindow {
                 win.lastCommand = "Voix · " + text
                 backend.askCompanion(text)
                 win.currentPage = "Compagnon"
+            }
+        }
+    }
+    Connections {
+        target: backend
+        function onCompanionChanged() {
+            if (backend.companionBusy) {
+                win.companionWasBusy = true
+                return
+            }
+            if (win.companionWasBusy) {
+                win.companionWasBusy = false
+                var answer = backend.companionMessage || ""
+                if (companionBridge.autoSpeak && answer.length > 0 && answer !== win.lastSpokenResponse) {
+                    win.lastSpokenResponse = answer
+                    companionBridge.speak(answer)
+                }
             }
         }
     }
