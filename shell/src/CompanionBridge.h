@@ -25,6 +25,10 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE bool speak(const QString &text);
+    Q_INVOKABLE bool enqueueSpeech(const QString &text);
+    Q_INVOKABLE void beginStreamingSpeech();
+    Q_INVOKABLE void pushStreamingText(const QString &delta);
+    Q_INVOKABLE void finishStreamingSpeech();
     Q_INVOKABLE void stopSpeaking();
     Q_INVOKABLE bool listenOnce();
     Q_INVOKABLE void setAutoSpeak(bool enabled);
@@ -55,7 +59,9 @@ private:
     bool m_listening=false;
     bool m_autoSpeak=true;
     bool m_stopRequested=false;
+    bool m_neuralVoiceReady=false;
     QStringList m_speechQueue;
+    QString m_streamSpeechBuffer;
     QProcess *m_speech=nullptr;
     QProcess *m_listener=nullptr;
 };
