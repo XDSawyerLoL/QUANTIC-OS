@@ -179,7 +179,7 @@ bool CompanionBridge::ensureNeuralWorker(){
         if(!m_stopRequested&&hadPending&&!pendingChunk.isEmpty()){
             if(speakPiper(pendingChunk)){worker->deleteLater();return;}
             if(synthesizeNextChunk()){worker->deleteLater();return;}
-            m_speaking=false;setState("prêt");emit changed();
+            if(!m_audioPlaying&&m_readyAudioQueue.isEmpty()){m_speaking=false;setState("prêt");emit changed();}
         }
         worker->deleteLater();
     });
@@ -213,29 +213,56 @@ void CompanionBridge::handleNeuralWorkerOutput(){
             const QString engine=o.value("engine").toString();
             if(engine.contains("chatterbox"))m_voiceEngine="Chatterbox Multilingual · français";
             else if(engine.contains("kokoro"))m_voiceEngine="Kokoro 82M · français";
-            emit changed();playWave(wavPath);return;
+            emit changed();
+            playWave(wavPath);
+            if(!m_stopRequested&&m_readyAudioQueue.size()<4&&!m_speechQueue.isEmpty())synthesizeNextChunk();
+            return;
         }
         QFile::remove(wavPath);
         if(!m_stopRequested&&speakPiper(chunk))return;
         if(!m_stopRequested&&synthesizeNextChunk())return;
-        m_speaking=false;setState("prêt");emit changed();
+        if(!m_audioPlaying&&m_readyAudioQueue.isEmpty()){m_speaking=false;setState("prêt");emit changed();}
     }
 }
 
 void CompanionBridge::playWave(const QString &wavPath, QObject *cleanupOwner){
+    if(cleanupOwner)cleanupOwner->deleteLater();
+    if(wavPath.isEmpty()||!QFile::exists(wavPath)){
+        if(!m_stopRequested&&m_voicePendingId==0&&!m_speechQueue.isEmpty())synthesizeNextChunk();
+        return;
+    }
+    m_readyAudioQueue.append(wavPath);
+    while(m_readyAudioQueue.size()>6){const QString dropped=m_readyAudioQueue.takeLast();QFile::remove(dropped);}
+    playNextReadyAudio();
+}
+
+void CompanionBridge::playNextReadyAudio(){
+    if(m_stopRequested||m_audioPlaying)return;
+    if(m_readyAudioQueue.isEmpty()){
+        if(m_voicePendingId==0&&!m_speechQueue.isEmpty()){synthesizeNextChunk();return;}
+        if(m_voicePendingId==0&&!m_speech){m_speaking=false;setState("prêt");emit changed();}
+        return;
+    }
+    const QString wavPath=m_readyAudioQueue.takeFirst();
     const QString player=findExecutable({"pw-play","aplay"});
     if(player.isEmpty()){
-        QFile::remove(wavPath); if(cleanupOwner)cleanupOwner->deleteLater(); m_speech=nullptr;
-        if(!m_stopRequested&&synthesizeNextChunk())return;
-        m_speaking=false; setState("prêt"); emit changed(); return;
+        QFile::remove(wavPath);
+        playNextReadyAudio();
+        return;
     }
-    QProcess *play=new QProcess(this); m_speech=play;
-    connect(play,&QProcess::finished,this,[this,play,wavPath,cleanupOwner](int,QProcess::ExitStatus){
-        play->deleteLater(); QFile::remove(wavPath); if(cleanupOwner)cleanupOwner->deleteLater(); m_speech=nullptr;
-        if(!m_stopRequested&&synthesizeNextChunk())return;
-        m_speaking=false; m_speechQueue.clear(); setState("prêt"); emit changed();
+    QProcess *play=new QProcess(this);m_player=play;m_audioPlaying=true;m_speaking=true;setState("parle");emit changed();
+    connect(play,&QProcess::finished,this,[this,play,wavPath](int,QProcess::ExitStatus){
+        play->deleteLater();QFile::remove(wavPath);
+        if(m_player==play)m_player=nullptr;
+        m_audioPlaying=false;
+        if(m_stopRequested)return;
+        playNextReadyAudio();
+        if(m_voicePendingId==0&&m_readyAudioQueue.size()<4&&!m_speechQueue.isEmpty())synthesizeNextChunk();
     });
     play->start(player,{wavPath});
+    if(!play->waitForStarted(120)){
+        play->deleteLater();m_player=nullptr;m_audioPlaying=false;QFile::remove(wavPath);playNextReadyAudio();
+    }
 }
 
 bool CompanionBridge::speakPiper(const QString &clean){
@@ -245,8 +272,8 @@ bool CompanionBridge::speakPiper(const QString &clean){
     if(!wav->open()){wav->deleteLater();return false;} const QString wavPath=wav->fileName(); wav->close();
     QProcess *synth=new QProcess(this); m_speech=synth; m_speaking=true; m_voiceEngine="Piper · secours"; setState("parle"); emit changed();
     connect(synth,&QProcess::finished,this,[this,synth,wav,wavPath](int code,QProcess::ExitStatus){
-        synth->deleteLater(); m_speech=nullptr;
-        if(code!=0){ QFile::remove(wavPath); wav->deleteLater(); if(!m_stopRequested&&synthesizeNextChunk())return; m_speaking=false; setState("prêt"); emit changed(); return; }
+        synth->deleteLater();if(m_speech==synth)m_speech=nullptr;
+        if(code!=0){ QFile::remove(wavPath); wav->deleteLater(); if(!m_stopRequested&&synthesizeNextChunk())return; if(!m_audioPlaying&&m_readyAudioQueue.isEmpty()){m_speaking=false;setState("prêt");emit changed();} return; }
         playWave(wavPath,wav);
     });
     synth->start(piper,{"--model",model,"--output_file",wavPath,"--length_scale","0.94","--noise_scale","0.62","--noise_w","0.82","--sentence_silence","0.10"});
@@ -256,7 +283,9 @@ bool CompanionBridge::speakPiper(const QString &clean){
 }
 
 bool CompanionBridge::synthesizeNextChunk(){
-    if(m_stopRequested||m_speechQueue.isEmpty()) return false;
+    if(m_stopRequested)return false;
+    if(m_voicePendingId>0)return true;
+    if(m_speechQueue.isEmpty())return false;
     const QString chunk=m_speechQueue.takeFirst();
     if(m_neuralVoiceReady&&ensureNeuralWorker()){
         QTemporaryFile wav(QDir::tempPath()+"/quantic-neural-XXXXXX.wav");wav.setAutoRemove(false);
@@ -276,7 +305,10 @@ bool CompanionBridge::enqueueSpeech(const QString &text){
     if(m_listening)return false;
     const QStringList chunks=speechChunks(text);if(chunks.isEmpty())return false;
     m_stopRequested=false;m_speechQueue.append(chunks);while(m_speechQueue.size()>18)m_speechQueue.removeLast();
-    if(m_speaking){emit changed();return true;}
+    if(m_speaking){
+        if(m_voicePendingId==0&&!m_speech&&m_readyAudioQueue.size()<4)synthesizeNextChunk();
+        emit changed();return true;
+    }
     m_speaking=true;setState("parle");emit changed();
     if(synthesizeNextChunk())return true;
     m_speaking=false;setState("prêt");emit changed();return false;
@@ -324,7 +356,10 @@ bool CompanionBridge::speak(const QString &text){
 }
 void CompanionBridge::stopSpeaking(){
     m_stopRequested=true;m_streamSpeechBuffer.clear();m_speechQueue.clear();
-    if(m_speech){m_speech->kill();m_speech=nullptr;}
+    if(m_speech){QProcess *speech=m_speech;m_speech=nullptr;speech->kill();}
+    if(m_player){QProcess *player=m_player;m_player=nullptr;player->kill();}
+    m_audioPlaying=false;
+    for(const QString &path:m_readyAudioQueue)QFile::remove(path);m_readyAudioQueue.clear();
     if(m_voicePendingId>0){
         m_voicePendingId=0;m_voicePendingChunk.clear();if(!m_voicePendingWav.isEmpty())QFile::remove(m_voicePendingWav);m_voicePendingWav.clear();
         if(m_voiceWorker){QProcess *worker=m_voiceWorker;m_voiceWorker=nullptr;m_voiceWorkerReady=false;worker->kill();worker->deleteLater();}
