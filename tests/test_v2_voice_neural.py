@@ -44,7 +44,7 @@ def test_voice_adapter_is_local_bounded_and_adaptive():
     assert 'KPipeline(lang_code="f")' in service
     assert 'DEFAULT_VOICE = "ff_siwis"' in service
     assert "ChatterboxMultilingualTTS" in service
-    assert 'language_id="fr"' in service
+    assert '"language_id": "fr"' in service
     assert "cuda_capable" in service
     assert "choose_engine" in service
     assert "HF_HUB_DISABLE_TELEMETRY" in service
