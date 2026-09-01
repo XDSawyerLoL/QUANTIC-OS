@@ -48,6 +48,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: backend.localAiStatus; color: "#D8E0ED"; font.pixelSize: 14 * root.unit }
                     Text { text: companionBridge.voiceStatus; color: "#8F9CB1"; font.pixelSize: 12 * root.unit }
+                    Text { text: "Moteur vocal · " + companionBridge.voiceEngine; color: "#6F7D92"; font.pixelSize: 11 * root.unit }
                     Text {
                         text: companionBridge.listening ? "Je t’écoute…" : companionBridge.state === "comprend" ? "Je comprends…" : companionBridge.speaking ? "Je te réponds…" : "Prêt"
                         color: "#9C92FF"
