@@ -1,0 +1,32 @@
+name: Test Quantic V2
+
+on:
+  push:
+    branches:
+      - feature/quantic-v2
+  pull_request:
+    branches:
+      - final/quantic-os-v1
+
+jobs:
+  python-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test runner
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Compile V2 services
+        run: |
+          python -m compileall -q services/qcontracts.py services/qeventbus.py services/qautonomy.py services/qmemory2.py services/qmemory_capture.py services/qmemory_router.py services/qmemory_reasoner.py services/qmemory_graph.py services/qcontext.py services/qquantum_broker.py services/qlearning.py
+
+      - name: Run V2 tests
+        run: pytest -q tests/test_v2_foundation.py tests/test_v2_autonomy.py tests/test_v2_memory_dream.py tests/test_v2_memory_trust_graph.py tests/test_v2_memory_router.py tests/test_v2_learning.py
