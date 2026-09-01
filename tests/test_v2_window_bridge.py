@@ -33,6 +33,7 @@ def test_wayland_fails_closed_without_kwin(monkeypatch):
     monkeypatch.setattr(qwb, "_qdbus", lambda: None)
     cap = qwb.capability()
     assert cap["can_move_resize"] is False
+    assert cap["can_exact_snapshot"] is False
     assert cap["mode"] == "observe-only"
 
 
@@ -43,6 +44,7 @@ def test_wayland_kwin_enables_native_window_control(monkeypatch):
     cap = qwb.capability()
     assert cap["can_list"] is False
     assert cap["can_move_resize"] is True
+    assert cap["can_exact_snapshot"] is False
     assert cap["mode"] == "wayland-kwin6"
 
 
@@ -62,7 +64,58 @@ def test_x11_wmctrl_enables_real_window_control(monkeypatch):
     cap = qwb.capability()
     assert cap["can_list"] is True
     assert cap["can_move_resize"] is True
+    assert cap["can_exact_snapshot"] is True
     assert cap["mode"] == "x11-wmctrl"
+
+
+def test_state_id_cannot_escape_private_state_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("QUANTIC_WINDOW_STATE_DIR", str(tmp_path))
+    result = qwb.capture_state("../../etc/passwd")
+    assert result == {"ok": False, "error": "invalid-state-id"}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_capture_state_normalizes_geometry_per_output(monkeypatch, tmp_path):
+    monkeypatch.setenv("QUANTIC_WINDOW_STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(qwb, "capability", lambda: {"can_exact_snapshot": True, "mode": "x11-wmctrl"})
+    monkeypatch.setattr(qwb, "list_outputs", lambda: [
+        qwb.Output("DP-1", 0, 0, 1920, 1080),
+        qwb.Output("HDMI-1", 1920, 0, 2560, 1440),
+    ])
+    monkeypatch.setattr(qwb, "list_windows", lambda: [
+        qwb.Window("0x1", 1, 42, 2160, 144, 1280, 720, "firefox.Firefox", "Project"),
+    ])
+    result = qwb.capture_state("creation")
+    assert result["ok"] is True
+    saved = __import__("json").loads((tmp_path / "creation.json").read_text(encoding="utf-8"))
+    window = saved["windows"][0]
+    assert window["output"] == "HDMI-1"
+    assert window["normalized"] == [0.09375, 0.1, 0.5, 0.5]
+
+
+def test_restore_state_survives_monitor_resize(monkeypatch, tmp_path):
+    monkeypatch.setenv("QUANTIC_WINDOW_STATE_DIR", str(tmp_path))
+    payload = {
+        "version": 1,
+        "state_id": "creation",
+        "session": "x11-wmctrl",
+        "outputs": [{"name": "DP-1", "x": 0, "y": 0, "width": 1920, "height": 1080}],
+        "windows": [{
+            "wm_class": "code.Code", "title": "main.cpp", "desktop": 2, "output": "DP-1",
+            "geometry": [960, 0, 960, 1080], "normalized": [0.5, 0.0, 0.5, 1.0]
+        }],
+    }
+    (tmp_path / "creation.json").write_text(__import__("json").dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(qwb, "capability", lambda: {"can_exact_snapshot": True, "mode": "x11-wmctrl"})
+    monkeypatch.setattr(qwb, "list_outputs", lambda: [qwb.Output("DP-1", 0, 0, 2560, 1440)])
+    monkeypatch.setattr(qwb, "list_windows", lambda: [qwb.Window("0x9", 2, 77, 10, 10, 800, 600, "code.Code", "main.cpp")])
+    calls = []
+    monkeypatch.setattr(qwb, "_run", lambda args, timeout=1.5: calls.append(args) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    result = qwb.restore_state("creation")
+    assert result["ok"] is True
+    assert result["restored"] == 1
+    geometry_calls = [c for c in calls if "-e" in c]
+    assert geometry_calls[-1][-1] == "0,1280,0,1280,1440"
 
 
 def test_shell_routes_qsnap_through_backend():
