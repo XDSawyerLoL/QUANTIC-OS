@@ -58,3 +58,16 @@ def test_phrase_streaming_starts_before_full_answer_is_synthesized():
     assert "synthesizeNextChunk()" in impl
     assert "out.mid(0,12)" in impl
     assert "m_stopRequested" in impl
+
+
+def test_agent_exposes_real_ollama_delta_streaming_for_shell_pipeline():
+    agent = read("services/qagent.py")
+    header = read("shell/src/Backend.h")
+    assert '"stream": stream' in agent
+    assert "def stream_ask(" in agent
+    assert "for raw in response" in agent
+    assert '"type": "delta"' in agent
+    assert '"--stream-ndjson"' in agent
+    assert "flush=True" in agent
+    assert "companionDelta(QString text)" in header
+    assert "companionStreamFinished()" in header
