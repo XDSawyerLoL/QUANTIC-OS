@@ -51,6 +51,7 @@ private:
     bool synthesizeNextChunk();
     bool speakPiper(const QString &text);
     void playWave(const QString &wavPath, QObject *cleanupOwner=nullptr);
+    void playNextReadyAudio();
     void setState(const QString &state);
 
     QString m_state="prêt";
@@ -63,7 +64,9 @@ private:
     bool m_stopRequested=false;
     bool m_neuralVoiceReady=false;
     bool m_voiceWorkerReady=false;
+    bool m_audioPlaying=false;
     QStringList m_speechQueue;
+    QStringList m_readyAudioQueue;
     QString m_streamSpeechBuffer;
     QProcess *m_speech=nullptr;
     QProcess *m_listener=nullptr;
