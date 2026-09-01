@@ -18,6 +18,7 @@ ApplicationWindow {
     property string activeLayout: "focus"
     property string lastSpokenResponse: ""
     property bool companionWasBusy: false
+    property bool companionStreamHadDelta: false
     property real uiScale: Math.max(0.82, Math.min(width / 1920, height / 1080))
 
     Shortcut { sequence: "Meta+Space"; onActivated: qspace.open() }
@@ -57,16 +58,35 @@ ApplicationWindow {
         target: backend
         function onCompanionChanged() {
             if (backend.companionBusy) {
+                if (!win.companionWasBusy) {
+                    win.companionStreamHadDelta = false
+                    if (companionBridge.autoSpeak)
+                        companionBridge.beginStreamingSpeech()
+                }
                 win.companionWasBusy = true
                 return
             }
             if (win.companionWasBusy) {
                 win.companionWasBusy = false
+                win.lastSpokenResponse = backend.companionMessage || ""
+            }
+        }
+        function onCompanionDelta(text) {
+            if (!text || text.length === 0)
+                return
+            win.companionStreamHadDelta = true
+            if (companionBridge.autoSpeak)
+                companionBridge.pushStreamingText(text)
+        }
+        function onCompanionStreamFinished() {
+            if (!companionBridge.autoSpeak)
+                return
+            if (win.companionStreamHadDelta)
+                companionBridge.finishStreamingSpeech()
+            else {
                 var answer = backend.companionMessage || ""
-                if (companionBridge.autoSpeak && answer.length > 0 && answer !== win.lastSpokenResponse) {
-                    win.lastSpokenResponse = answer
+                if (answer.length > 0)
                     companionBridge.speak(answer)
-                }
             }
         }
     }
