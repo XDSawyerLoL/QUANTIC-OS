@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QStringList>
 
 class CompanionBridge final : public QObject {
     Q_OBJECT
@@ -10,6 +11,7 @@ class CompanionBridge final : public QObject {
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
     Q_PROPERTY(QString lastTranscript READ lastTranscript NOTIFY changed)
     Q_PROPERTY(QString voiceStatus READ voiceStatus NOTIFY changed)
+    Q_PROPERTY(bool autoSpeak READ autoSpeak WRITE setAutoSpeak NOTIFY changed)
 public:
     explicit CompanionBridge(QObject *parent=nullptr);
     QString state() const { return m_state; }
@@ -17,11 +19,14 @@ public:
     bool listening() const { return m_listening; }
     QString lastTranscript() const { return m_lastTranscript; }
     QString voiceStatus() const { return m_voiceStatus; }
+    bool autoSpeak() const { return m_autoSpeak; }
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE bool speak(const QString &text);
     Q_INVOKABLE void stopSpeaking();
     Q_INVOKABLE bool listenOnce();
+    Q_INVOKABLE void setAutoSpeak(bool enabled);
+    Q_INVOKABLE QString speechPreview(const QString &text) const;
 
 signals:
     void changed();
@@ -31,6 +36,7 @@ private:
     QString findExecutable(const QStringList &names) const;
     QString findVoiceModel() const;
     QString findWhisperModel() const;
+    QString naturalSpeechText(const QString &text) const;
     void setState(const QString &state);
 
     QString m_state="prêt";
@@ -38,6 +44,7 @@ private:
     QString m_voiceStatus="Voix locale : détection…";
     bool m_speaking=false;
     bool m_listening=false;
+    bool m_autoSpeak=true;
     QProcess *m_speech=nullptr;
     QProcess *m_listener=nullptr;
 };
