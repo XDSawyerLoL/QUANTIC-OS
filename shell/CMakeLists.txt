@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(quantic-home VERSION 1.2 LANGUAGES CXX)
+project(quantic-home VERSION 1.3 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick Qml Svg Network)
@@ -7,7 +7,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 qt_add_executable(quantic-home src/main.cpp src/Backend.cpp src/Backend.h)
 qt_add_qml_module(quantic-home
     URI Quantic.Home
-    VERSION 1.2
+    VERSION 1.3
     QML_FILES
         qml/Main.qml
         qml/components/GlassPanel.qml
@@ -18,6 +18,9 @@ qt_add_qml_module(quantic-home
         qml/components/ResourceRow.qml
         qml/components/QBar.qml
         qml/components/QSpace.qml
+        qml/components/QuickSettings.qml
+        qml/components/NotificationCenter.qml
+        qml/components/QSnap.qml
         qml/pages/HomePage.qml
         qml/pages/AppsPage.qml
         qml/pages/FilesPage.qml
