@@ -3,10 +3,10 @@
 
 Conservative compositor/window adapter used by Quantic Desktop V2.
 - X11: real enumeration and geometry changes through wmctrl when available.
-- Wayland: capability is detected and reported; no unsafe/unverified compositor hacks.
+- Plasma Wayland: one-shot KWin 6 scripts loaded through KWin's public D-Bus
+  scripting interface. No shell command supplied by the agent is ever executed.
 
-The bridge is intentionally allowlisted to layout operations only. It never executes
-arbitrary commands supplied by the agent or UI.
+The bridge is intentionally allowlisted to known layout operations only.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import asdict, dataclass
 from typing import Iterable
 
@@ -48,16 +49,42 @@ def session_type() -> str:
     return os.environ.get("XDG_SESSION_TYPE", "").strip().lower() or ("x11" if os.environ.get("DISPLAY") else "unknown")
 
 
+def _qdbus() -> str | None:
+    return shutil.which("qdbus6") or shutil.which("qdbus")
+
+
+def _kwin_available(qdbus: str | None = None) -> bool:
+    exe = qdbus or _qdbus()
+    if not exe:
+        return False
+    try:
+        proc = _run([exe, "org.kde.KWin", "/Scripting"], timeout=1.0)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0 and "loadScript" in (proc.stdout + proc.stderr)
+
+
 def capability() -> dict:
     session = session_type()
     has_wmctrl = shutil.which("wmctrl") is not None
-    mode = "x11-wmctrl" if session == "x11" and has_wmctrl else "observe-only"
+    qdbus = _qdbus()
+    has_kwin = session == "wayland" and _kwin_available(qdbus)
+    if session == "x11" and has_wmctrl:
+        mode = "x11-wmctrl"
+    elif has_kwin:
+        mode = "wayland-kwin6"
+    else:
+        mode = "observe-only"
     return {
         "session": session,
         "mode": mode,
         "can_list": mode == "x11-wmctrl",
-        "can_move_resize": mode == "x11-wmctrl",
-        "reason": "" if mode == "x11-wmctrl" else ("wmctrl absent" if session == "x11" else "Wayland compositor adapter not enabled"),
+        "can_move_resize": mode in {"x11-wmctrl", "wayland-kwin6"},
+        "reason": "" if mode != "observe-only" else (
+            "wmctrl absent" if session == "x11" else
+            "KWin scripting D-Bus unavailable" if session == "wayland" else
+            "unsupported session"
+        ),
     }
 
 
@@ -82,7 +109,6 @@ def list_windows() -> list[Window]:
 
 
 def _screen_size() -> tuple[int, int]:
-    # xrandr is preferred because the shell can span a virtual desktop.
     if shutil.which("xrandr"):
         proc = _run(["xrandr", "--current"])
         for line in proc.stdout.splitlines():
@@ -109,12 +135,84 @@ def _eligible(windows: Iterable[Window]) -> list[Window]:
     return result
 
 
+def _kwin_script(layout_id: str) -> str:
+    slots = json.dumps(LAYOUTS[layout_id], separators=(",", ":"))
+    # The script only touches ordinary, managed, movable/resizable windows.
+    # It uses KWin's active output client area, so panels and screen geometry are respected.
+    return f'''(function() {{
+const slots = {slots};
+const wins = workspace.stackingOrder.filter(function(w) {{
+    return w && w.managed && !w.deleted && !w.specialWindow && !w.skipTaskbar &&
+           w.moveable && w.resizeable && w.desktopFileName !== "quantic-home";
+}}).reverse();
+const output = workspace.activeScreen;
+const desktop = workspace.currentDesktop;
+const area = clientArea(KWin.MaximizeArea, output, desktop);
+for (let i = 0; i < Math.min(wins.length, slots.length); ++i) {{
+    const w = wins[i];
+    const s = slots[i];
+    w.fullScreen = false;
+    w.minimized = false;
+    w.frameGeometry = {{
+        x: Math.round(area.x + area.width * s[0]),
+        y: Math.round(area.y + area.height * s[1]),
+        width: Math.round(area.width * s[2]),
+        height: Math.round(area.height * s[3])
+    }};
+}}
+}})();
+'''
+
+
+def _apply_kwin(layout_id: str) -> dict:
+    qdbus = _qdbus()
+    if not qdbus or not _kwin_available(qdbus):
+        return {"ok": False, "error": "kwin-scripting-unavailable"}
+    plugin = f"quantic-layout-{os.getpid()}"
+    path = ""
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", prefix="quantic-kwin-", delete=False, encoding="utf-8") as handle:
+            handle.write(_kwin_script(layout_id))
+            path = handle.name
+        loaded = _run([qdbus, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", path, plugin], timeout=2.0)
+        if loaded.returncode != 0:
+            return {"ok": False, "error": "kwin-load-failed", "detail": loaded.stderr.strip()[:240]}
+        raw = loaded.stdout.strip().splitlines()[-1] if loaded.stdout.strip() else ""
+        try:
+            script_id = int(raw)
+        except ValueError:
+            return {"ok": False, "error": "kwin-invalid-script-id", "detail": raw[:80]}
+        if script_id < 0:
+            return {"ok": False, "error": "kwin-load-refused"}
+        run = _run([qdbus, "org.kde.KWin", f"/{script_id}", "org.kde.kwin.Scripting.run"], timeout=2.0)
+        _run([qdbus, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", plugin], timeout=1.0)
+        return {
+            "ok": run.returncode == 0,
+            "layout": layout_id,
+            "mode": "wayland-kwin6",
+            "script_id": script_id,
+            "error": "" if run.returncode == 0 else "kwin-run-failed",
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": "kwin-execution-failed", "detail": str(exc)[:240]}
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 def apply_layout(layout_id: str, windows: list[Window] | None = None) -> dict:
     if layout_id not in LAYOUTS:
         return {"ok": False, "error": "unknown-layout", "layout": layout_id}
     cap = capability()
     if not cap["can_move_resize"]:
         return {"ok": False, "error": "unsupported-session", "capability": cap}
+    if cap["mode"] == "wayland-kwin6":
+        result = _apply_kwin(layout_id)
+        result["capability"] = cap
+        return result
     selected = _eligible(windows if windows is not None else list_windows())
     if not selected:
         return {"ok": False, "error": "no-eligible-windows", "capability": cap}
