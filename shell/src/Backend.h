@@ -76,6 +76,8 @@ public:
 signals:
     void metricsChanged();
     void companionChanged();
+    void companionDelta(QString text);
+    void companionStreamFinished();
     void labChanged();
     void desktopChanged();
 private slots:
@@ -102,6 +104,8 @@ private:
     bool m_safeMode=false;
     QString m_companion="Quantic est prêt. Je surveille le système sans effectuer d’action sensible sans autorisation.";
     bool m_companionBusy=false;
+    QString m_companionStreamBuffer;
+    QString m_companionLineBuffer;
     QString m_labOutput="Sélectionne une expérience. Les calculs seront exécutés localement par Q-Core.";
     QString m_activeMission="Quantic OS";
     QVariantList m_recentApps;
