@@ -2,9 +2,9 @@
 """Quantic premium local neural voice adapter.
 
 Adaptive engines:
-- Chatterbox Multilingual V3 on a capable CUDA machine for maximum naturalness,
-  expressive control and French zero-shot speech.
-- Kokoro-82M for low-latency local conversation, especially on CPU.
+- Chatterbox Multilingual V3 when enough free CUDA memory remains after the LLM,
+  with a stable female French reference voice.
+- Kokoro-82M for low-latency local conversation and GPU-pressure fallback.
 - Piper remains the shell-level emergency fallback.
 
 The adapter never executes arbitrary commands. It accepts bounded text and writes
@@ -28,6 +28,7 @@ MAX_CHARS = 1800
 DEFAULT_VOICE = "ff_siwis"
 DEFAULT_HF_HOME = "/usr/share/quantic/models/hf"
 DEFAULT_REFERENCE = Path.home() / ".local/share/quantic/voices/quantic-female-reference.wav"
+MIN_CHATTERBOX_FREE_VRAM_GB = 4.5
 os.environ.setdefault("HF_HOME", DEFAULT_HF_HOME)
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -58,6 +59,17 @@ def cuda_capable() -> bool:
         return False
 
 
+def cuda_free_gb() -> float | None:
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+        return float(free_bytes) / (1024.0 ** 3)
+    except Exception:
+        return None
+
+
 def chatterbox_available() -> bool:
     try:
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # noqa: F401
@@ -80,11 +92,13 @@ def kokoro_available() -> bool:
 def choose_engine(requested: str = "auto") -> str:
     if requested in {"chatterbox", "kokoro"}:
         return requested
-    if cuda_capable() and chatterbox_available():
+    free_vram = cuda_free_gb()
+    chatterbox_has_headroom = free_vram is None or free_vram >= MIN_CHATTERBOX_FREE_VRAM_GB
+    if cuda_capable() and chatterbox_available() and chatterbox_has_headroom:
         return "chatterbox"
     if kokoro_available():
         return "kokoro"
-    if chatterbox_available():
+    if chatterbox_available() and chatterbox_has_headroom:
         return "chatterbox"
     return "none"
 
@@ -147,26 +161,37 @@ class VoiceRuntime:
         except Exception:
             return None
 
+    def _fallback_to_kokoro(self) -> bool:
+        if not kokoro_available():
+            return False
+        self.selected = "kokoro"
+        self._load_kokoro()
+        return True
+
     def warmup(self) -> dict:
         try:
             if self.selected == "chatterbox":
-                self._ensure_female_reference()
-                self._load_chatterbox()
+                reference = self._ensure_female_reference()
+                if reference is None:
+                    if not self._fallback_to_kokoro():
+                        return {"ok": False, "selected": "none", "error": "female-reference-required"}
+                else:
+                    self._load_chatterbox()
             elif self.selected == "kokoro":
                 self._load_kokoro()
             return {
                 "ok": self.selected != "none",
                 "selected": self.selected,
                 "cuda": cuda_capable(),
+                "free_vram_gb": cuda_free_gb(),
                 "reference": bool(self.reference and self.reference.is_file()),
                 "model_version": self._chatterbox_version if self.selected == "chatterbox" else "n/a",
             }
         except Exception as exc:
-            if self.requested_engine == "auto" and self.selected == "chatterbox" and kokoro_available():
-                self.selected = "kokoro"
+            if self.requested_engine == "auto" and self.selected == "chatterbox":
                 try:
-                    self._load_kokoro()
-                    return {"ok": True, "selected": self.selected, "cuda": cuda_capable(), "fallback": "kokoro", "reference": False, "model_version": "n/a"}
+                    if self._fallback_to_kokoro():
+                        return {"ok": True, "selected": self.selected, "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "fallback": "kokoro", "reference": False, "model_version": "n/a"}
                 except Exception:
                     pass
             return {"ok": False, "selected": self.selected, "error": f"{type(exc).__name__}: {exc}"[:240]}
@@ -186,11 +211,13 @@ class VoiceRuntime:
             try:
                 import torchaudio as ta
 
-                self._load_chatterbox()
                 reference = self._ensure_female_reference()
-                kwargs = {"language_id": "fr", "exaggeration": 0.42, "cfg_weight": 0.32}
-                if reference:
-                    kwargs["audio_prompt_path"] = str(reference)
+                if reference is None:
+                    if self.requested_engine == "auto" and self._fallback_to_kokoro():
+                        return self.synthesize(clean, output, voice=actual_voice, speed=actual_speed)
+                    return {"ok": False, "error": "female-reference-required"}
+                self._load_chatterbox()
+                kwargs = {"language_id": "fr", "exaggeration": 0.42, "cfg_weight": 0.32, "audio_prompt_path": str(reference)}
                 wav = self._chatterbox.generate(clean, **kwargs)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 ta.save(str(output), wav, self._chatterbox.sr)
@@ -200,12 +227,17 @@ class VoiceRuntime:
                     "device": self._chatterbox_device,
                     "sample_rate": int(self._chatterbox.sr),
                     "chars": len(clean),
-                    "reference": bool(reference),
+                    "reference": True,
                 }
             except Exception as exc:
-                if self.requested_engine != "auto" or not kokoro_available():
+                if self.requested_engine != "auto":
                     return {"ok": False, "error": "chatterbox-failed", "detail": f"{type(exc).__name__}: {exc}"[:240]}
-                self.selected = "kokoro"
+                try:
+                    if self._fallback_to_kokoro():
+                        return self.synthesize(clean, output, voice=actual_voice, speed=actual_speed)
+                except Exception:
+                    pass
+                return {"ok": False, "error": "chatterbox-failed", "detail": f"{type(exc).__name__}: {exc}"[:240]}
 
         if self.selected == "kokoro":
             try:
@@ -239,7 +271,7 @@ def synthesize(text: str, output: Path, *, engine: str = "auto", voice: str = DE
 
 
 def serve(runtime: VoiceRuntime, *, warm: bool = True) -> int:
-    status = runtime.warmup() if warm else {"ok": runtime.selected != "none", "selected": runtime.selected, "cuda": cuda_capable()}
+    status = runtime.warmup() if warm else {"ok": runtime.selected != "none", "selected": runtime.selected, "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb()}
     print(json.dumps({"type": "ready", **status}, ensure_ascii=False, separators=(",", ":")), flush=True)
     if not status.get("ok"):
         return 2
@@ -277,7 +309,7 @@ def main() -> int:
     parser.add_argument("text", nargs="*")
     args = parser.parse_args()
     if args.probe:
-        result = {"ok": True, "selected": choose_engine(args.engine), "cuda": cuda_capable(), "chatterbox": chatterbox_available(), "kokoro": kokoro_available()}
+        result = {"ok": True, "selected": choose_engine(args.engine), "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "chatterbox": chatterbox_available(), "kokoro": kokoro_available()}
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
     runtime = VoiceRuntime(engine=args.engine, voice=args.voice, speed=args.speed)
