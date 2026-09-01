@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'rc=$?; echo "[ERROR] remaster failed at line ${BASH_LINENO[0]}: ${BASH_COMMAND} (exit ${rc})" >&2; exit ${rc}' ERR
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WORK="${QUANTIC_WORKDIR:-$ROOT/build/final-remaster}"
@@ -70,7 +71,9 @@ echo '[6/10] Provisioning compact local AI runtime, ears, voice and containment'
 chmod +x "$ROOT/scripts/provision-final-ai.sh"
 "$ROOT/scripts/provision-final-ai.sh" "$ROOT_TREE" "$WORK"
 
+echo '[6b/10] Installing and enabling Quantic system/user services'
 for unit in quantic-usb-safe.service quantic-persistence.service quantic-health.service quantic-core.target quantic-ollama.service; do
+  echo "[SERVICES] Installing $unit"
   sudo install -D -m 0644 "$ROOT/systemd/$unit" "$ROOT_TREE/usr/lib/systemd/system/$unit"
 done
 sudo mkdir -p "$ROOT_TREE/etc/systemd/system/local-fs.target.wants" "$ROOT_TREE/etc/systemd/system/multi-user.target.wants"
@@ -80,6 +83,7 @@ sudo ln -sfn /usr/lib/systemd/system/quantic-core.target "$ROOT_TREE/etc/systemd
 sudo ln -sfn /usr/lib/systemd/system/quantic-ollama.service "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
 
 for unit in quantic-companion.service quantic-voice.service; do
+  echo "[SERVICES] Installing user/$unit"
   sudo install -D -m 0644 "$ROOT/systemd/user/$unit" "$ROOT_TREE/usr/lib/systemd/user/$unit"
 done
 sudo mkdir -p "$ROOT_TREE/etc/systemd/user/default.target.wants"
@@ -108,21 +112,22 @@ VOICE_MODE="always-on-local-wake"
 PERSISTENCE="usb-only:QUANTIC-DATA"
 EOF
 
-sudo chroot "$ROOT_TREE" /sbin/restorecon -RF /usr/libexec/quantic-home /etc/xdg/autostart/quantic-home.desktop /usr/lib/quantic /etc/quantic /usr/lib/systemd/system/quantic-\* /usr/lib/systemd/user/quantic-\* /usr/share/quantic /usr/share/backgrounds/quantic /usr/share/plasma/look-and-feel/org.quantic.desktop /usr/local/share/applications 2>/dev/null || true
+sudo chroot "$ROOT_TREE" /sbin/restorecon -RF /usr/libexec/quantic-home /etc/xdg/autostart/quantic-home.desktop /usr/lib/quantic /etc/quantic /usr/lib/systemd/system/quantic-* /usr/lib/systemd/user/quantic-* /usr/share/quantic /usr/share/backgrounds/quantic /usr/share/plasma/look-and-feel/org.quantic.desktop /usr/local/share/applications 2>/dev/null || true
 
+echo '[6c/10] Validating injected runtime'
 for f in qagent.py qagent_runtime.py qpolicy.py qsimulation.py qcontainment.py qtoolrouter.py qtwin.py qverify.py qrollback.py qskills.py qmcp.py qtasks.py qpersistence.py qhealth.py qvoice.py; do
-  test -x "$ROOT_TREE/usr/lib/quantic/services/$f"
+  sudo test -x "$ROOT_TREE/usr/lib/quantic/services/$f"
 done
-test -x "$ROOT_TREE/usr/libexec/quantic-home"
-test -x "$ROOT_TREE/usr/bin/ollama"
-test -x "$ROOT_TREE/usr/bin/bwrap"
-test -s "$ROOT_TREE/usr/share/quantic/models/ggml-base.bin"
-test -s "$ROOT_TREE/usr/share/quantic/models/fr_FR-siwis-medium.onnx"
-test -L "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
-test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-core.target"
-test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
-test -L "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"
-grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' "$ROOT_TREE/usr/lib/systemd/system/quantic-ollama.service"
+sudo test -x "$ROOT_TREE/usr/libexec/quantic-home"
+sudo test -x "$ROOT_TREE/usr/bin/ollama"
+sudo test -x "$ROOT_TREE/usr/bin/bwrap"
+sudo test -s "$ROOT_TREE/usr/share/quantic/models/ggml-base.bin"
+sudo test -s "$ROOT_TREE/usr/share/quantic/models/fr_FR-siwis-medium.onnx"
+sudo test -L "$ROOT_TREE/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.service"
+sudo test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-core.target"
+sudo test -L "$ROOT_TREE/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
+sudo test -L "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"
+sudo grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' "$ROOT_TREE/usr/lib/systemd/system/quantic-ollama.service"
 
 echo '[7/10] Repacking LiveOS as fast EROFS LZ4HC'
 sudo mkfs.erofs -zlz4hc -Eall-fragments -C1048576 "$EROFS_NEW" "$ROOT_TREE"
@@ -140,19 +145,19 @@ xorriso -osirrox on -indev "$OUT_ISO" -extract /LiveOS/squashfs.img "$VERIFY_IMG
 [[ "$(blkid -o value -s TYPE "$VERIFY_IMG" || true)" == "erofs" ]]
 fsck.erofs "$VERIFY_IMG" >/dev/null
 sudo mount -t erofs -o loop,ro "$VERIFY_IMG" "$VERIFY_MNT"; VERIFY_MOUNTED=1
-test -x "$VERIFY_MNT/usr/libexec/quantic-home"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qagent_runtime.py"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qpolicy.py"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qsimulation.py"
-test -x "$VERIFY_MNT/usr/lib/quantic/services/qcontainment.py"
-test -x "$VERIFY_MNT/usr/bin/ollama"
-test -x "$VERIFY_MNT/usr/bin/bwrap"
-test -s "$VERIFY_MNT/usr/share/quantic/models/ggml-base.bin"
-test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-core.target"
-test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
-test -L "$VERIFY_MNT/etc/systemd/user/default.target.wants/quantic-voice.service"
-grep -q 'LOCAL_MODEL="external:QUANTIC-DATA/models/ollama"' "$VERIFY_MNT/etc/quantic-release"
-! test -d "$VERIFY_MNT/usr/share/quantic/ollama-models"
+sudo test -x "$VERIFY_MNT/usr/libexec/quantic-home"
+sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qagent_runtime.py"
+sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qpolicy.py"
+sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qsimulation.py"
+sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qcontainment.py"
+sudo test -x "$VERIFY_MNT/usr/bin/ollama"
+sudo test -x "$VERIFY_MNT/usr/bin/bwrap"
+sudo test -s "$VERIFY_MNT/usr/share/quantic/models/ggml-base.bin"
+sudo test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-core.target"
+sudo test -L "$VERIFY_MNT/etc/systemd/system/multi-user.target.wants/quantic-ollama.service"
+sudo test -L "$VERIFY_MNT/etc/systemd/user/default.target.wants/quantic-voice.service"
+sudo grep -q 'LOCAL_MODEL="external:QUANTIC-DATA/models/ollama"' "$VERIFY_MNT/etc/quantic-release"
+! sudo test -d "$VERIFY_MNT/usr/share/quantic/ollama-models"
 sudo umount "$VERIFY_MNT"; VERIFY_MOUNTED=0
 sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"
 
