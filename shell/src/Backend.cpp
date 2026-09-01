@@ -1,5 +1,6 @@
 #include "Backend.h"
 #include <QFile>
+#include <QSaveFile>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStorageInfo>
