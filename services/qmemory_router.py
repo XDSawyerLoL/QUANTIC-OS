@@ -2,6 +2,7 @@
 """Intent-gated, multi-view retrieval for Quantic V2 memory."""
 from __future__ import annotations
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any
 import re, time
 
@@ -38,12 +39,17 @@ def classify(query: str) -> RetrievalIntent:
 def _terms(query: str) -> list[str]:
     return [x.lower() for x in re.findall(r"[\wÀ-ÿ'-]+", query) if len(x) > 2]
 
+def _graph_for(store: MemoryStore | None) -> FrontierMemory:
+    if store is not None and getattr(store, "path", None):
+        return FrontierMemory(Path(store.path).with_name("qmemory_graph.sqlite3"))
+    return FrontierMemory()
+
 def retrieve(query: str, *, namespace: str="user:default", store: MemoryStore|None=None, graph: FrontierMemory|None=None, limit: int=8) -> dict[str,Any]:
     intent=classify(query)
     if intent.self_contained:
         return {"query":query,"intent":asdict(intent),"evidence":[],"abstain":False,"latency_ms":0}
-    own_store=store is None; own_graph=graph is None
-    store=store or MemoryStore(); graph=graph or FrontierMemory()
+    own_store=store is None
+    store=store or MemoryStore()
     evidence=[]; seen=set(); terms=_terms(query); started=time.perf_counter()
     kinds=[]
     if intent.procedural: kinds.append("procedural")
@@ -52,25 +58,30 @@ def retrieve(query: str, *, namespace: str="user:default", store: MemoryStore|No
     for m in store.recall(query, namespace=namespace, kinds=kinds, limit=limit):
         if m["id"] in seen: continue
         seen.add(m["id"]); evidence.append({"view":"memory","memory_id":m["id"],"score":m.get("score",0),"content":m["content"],"provenance":m["provenance"],"confidence":m["confidence"]})
-    if intent.temporal or intent.episodic:
-        for row in graph.timeline(limit=50):
-            text=str(row.get("summary","")).lower(); overlap=sum(t in text for t in terms)
-            if overlap or intent.temporal:
-                evidence.append({"view":"timeline","memory_id":row.get("memory_id"),"score":0.45+0.04*overlap,"content":{"summary":row.get("summary"),"ts":row.get("ts"),"kind":row.get("kind")},"provenance":row.get("provenance_json"),"confidence":0.75})
-    if intent.documentary:
-        rows=graph.db.execute("SELECT * FROM documents ORDER BY created_at DESC LIMIT 100").fetchall()
-        for row in rows:
-            text=(str(row["title"])+" "+str(row["text"])).lower(); overlap=sum(t in text for t in terms)
-            if overlap:
-                evidence.append({"view":"document","memory_id":row["memory_id"],"score":0.5+0.05*overlap,"content":{"title":row["title"],"text":row["text"],"level":row["level"]},"provenance":row["provenance_json"],"confidence":0.8})
-    if intent.entity:
-        rows=graph.db.execute("SELECT * FROM entities ORDER BY updated_at DESC LIMIT 100").fetchall()
-        for row in rows:
-            name=str(row["canonical_name"]).lower(); overlap=sum(t in name for t in terms)
-            if overlap:
-                evidence.append({"view":"entity","memory_id":None,"score":0.48+0.06*overlap,"content":{"id":row["id"],"name":row["canonical_name"],"type":row["entity_type"]},"provenance":{"source":"knowledge_graph"},"confidence":0.75})
+
+    need_graph = intent.temporal or intent.episodic or intent.documentary or intent.entity
+    own_graph = graph is None and need_graph
+    if need_graph:
+        graph = graph or _graph_for(store)
+        if intent.temporal or intent.episodic:
+            for row in graph.timeline(limit=50):
+                text=str(row.get("summary","")).lower(); overlap=sum(t in text for t in terms)
+                if overlap or intent.temporal:
+                    evidence.append({"view":"timeline","memory_id":row.get("memory_id"),"score":0.45+0.04*overlap,"content":{"summary":row.get("summary"),"ts":row.get("ts"),"kind":row.get("kind")},"provenance":row.get("provenance_json"),"confidence":0.75})
+        if intent.documentary:
+            rows=graph.db.execute("SELECT * FROM documents ORDER BY created_at DESC LIMIT 100").fetchall()
+            for row in rows:
+                text=(str(row["title"])+" "+str(row["text"])).lower(); overlap=sum(t in text for t in terms)
+                if overlap:
+                    evidence.append({"view":"document","memory_id":row["memory_id"],"score":0.5+0.05*overlap,"content":{"title":row["title"],"text":row["text"],"level":row["level"]},"provenance":row["provenance_json"],"confidence":0.8})
+        if intent.entity:
+            rows=graph.db.execute("SELECT * FROM entities ORDER BY updated_at DESC LIMIT 100").fetchall()
+            for row in rows:
+                name=str(row["canonical_name"]).lower(); overlap=sum(t in name for t in terms)
+                if overlap:
+                    evidence.append({"view":"entity","memory_id":None,"score":0.48+0.06*overlap,"content":{"id":row["id"],"name":row["canonical_name"],"type":row["entity_type"]},"provenance":{"source":"knowledge_graph"},"confidence":0.75})
     evidence.sort(key=lambda x:(float(x.get("score",0)),float(x.get("confidence",0))), reverse=True)
     evidence=evidence[:limit]
     if own_store: store.close()
-    if own_graph: graph.close()
+    if own_graph and graph is not None: graph.close()
     return {"query":query,"intent":asdict(intent),"evidence":evidence,"abstain":not bool(evidence),"latency_ms":round((time.perf_counter()-started)*1000,2)}
