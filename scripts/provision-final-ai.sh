@@ -12,16 +12,28 @@ sudo mkdir -p "$MODEL_DIR" "$WORK"
 
 restore_resolver() {
   if [[ "$HAD_RESOLV" == 1 && -f "$RESOLV_BACKUP" ]]; then
-    sudo cp -L "$RESOLV_BACKUP" "$RESOLV_DST"
+    sudo cp -L "$RESOLV_BACKUP" "$RESOLV_DST" || true
   else
-    sudo rm -f "$RESOLV_DST"
+    sudo rm -f "$RESOLV_DST" || true
   fi
+  return 0
 }
-trap restore_resolver EXIT
+
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  restore_resolver || true
+  exit "$rc"
+}
+trap cleanup EXIT
 
 if [[ -e "$RESOLV_DST" || -L "$RESOLV_DST" ]]; then
-  sudo cp -L "$RESOLV_DST" "$RESOLV_BACKUP" 2>/dev/null || true
-  HAD_RESOLV=1
+  if sudo cp -L "$RESOLV_DST" "$RESOLV_BACKUP" 2>/dev/null; then
+    HAD_RESOLV=1
+  else
+    HAD_RESOLV=0
+    sudo rm -f "$RESOLV_BACKUP" || true
+  fi
 fi
 sudo rm -f "$RESOLV_DST"
 sudo cp -L /etc/resolv.conf "$RESOLV_DST"
@@ -59,3 +71,4 @@ test -s "$MODEL_DIR/ggml-base.bin"
 test -s "$MODEL_DIR/fr_FR-siwis-medium.onnx"
 
 echo '[AI] Runtime ready. Large LLM weights are intentionally stored on QUANTIC-DATA, not in the ISO.'
+exit 0
