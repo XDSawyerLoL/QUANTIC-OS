@@ -83,10 +83,12 @@ void Backend::loadDesktopState(){
     const auto o=doc.object(); const QString mission=o.value("activeMission").toString(); if(!mission.isEmpty())m_activeMission=mission;
     const auto apps=o.value("recentApps").toArray(); for(const auto &v:apps){const QString id=v.toString();if(appCandidates().contains(id)&&!m_recentApps.contains(id))m_recentApps.append(id);if(m_recentApps.size()>=8)break;}
     const auto missions=o.value("missions").toObject();for(auto it=missions.begin();it!=missions.end();++it){QStringList ids;for(const auto &v:it.value().toArray()){const QString id=v.toString();if(appCandidates().contains(id)&&!ids.contains(id))ids.append(id);}m_missionApps.insert(it.key(),ids);}
+    const auto layouts=o.value("missionLayouts").toObject();static const QStringList allowedLayouts={"focus","half","wide","triple"};for(auto it=layouts.begin();it!=layouts.end();++it){const QString id=it.value().toString();if(allowedLayouts.contains(id))m_missionLayouts.insert(it.key(),id);}
 }
 void Backend::saveDesktopState() const{
-    QJsonObject o; o.insert("version",2);o.insert("activeMission",m_activeMission);QJsonArray apps;for(const auto &v:m_recentApps)apps.append(v.toString());o.insert("recentApps",apps);
+    QJsonObject o; o.insert("version",3);o.insert("activeMission",m_activeMission);QJsonArray apps;for(const auto &v:m_recentApps)apps.append(v.toString());o.insert("recentApps",apps);
     QJsonObject missions;for(auto it=m_missionApps.cbegin();it!=m_missionApps.cend();++it){QJsonArray ids;for(const auto &id:it.value())ids.append(id);missions.insert(it.key(),ids);}o.insert("missions",missions);
+    QJsonObject layouts;for(auto it=m_missionLayouts.cbegin();it!=m_missionLayouts.cend();++it)layouts.insert(it.key(),it.value());o.insert("missionLayouts",layouts);
     QSaveFile f(desktopStatePath());if(f.open(QIODevice::WriteOnly)){f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));f.commit();}
 }
 void Backend::noteRecentApp(const QString &appId){
@@ -108,17 +110,18 @@ void Backend::setActiveMission(const QString &mission){
 void Backend::rememberDesktopState(){saveDesktopState();m_lastLaunchStatus="Mission enregistrée";emit desktopChanged();}
 int Backend::restoreActiveMission(){
     const auto ids=m_missionApps.value(m_activeMission);int opened=0;for(const auto &id:ids){const auto candidates=appCandidates().value(id);for(const auto &candidate:candidates){const QString exe=QStandardPaths::findExecutable(candidate);if(exe.isEmpty())continue;if(QProcess::startDetached(exe,{}))++opened;break;}}
+    const QString layout=m_missionLayouts.value(m_activeMission);if(!layout.isEmpty())QTimer::singleShot(1400,this,[this,layout](){applyWindowLayout(layout);});
     m_lastLaunchStatus=opened>0?QString("Mission restaurée · %1 application(s)").arg(opened):"Aucune application à restaurer";emit desktopChanged();return opened;
 }
 void Backend::refreshWindowBridge(){
     QProcess p; p.start("/usr/bin/python3",{windowBridgePath(),"capability"});
     if(!p.waitForStarted(120)||!p.waitForFinished(1200)){m_windowBridgeStatus="Fenêtres : bridge indisponible";emit desktopChanged();return;}
     QJsonParseError err;const auto doc=QJsonDocument::fromJson(p.readAllStandardOutput(),&err);if(err.error!=QJsonParseError::NoError||!doc.isObject()){m_windowBridgeStatus="Fenêtres : état inconnu";emit desktopChanged();return;}
-    const auto o=doc.object();const bool move=o.value("can_move_resize").toBool();const QString session=o.value("session").toString();m_windowBridgeStatus=move?("Fenêtres : contrôle actif · "+session):("Fenêtres : observation seule · "+session);emit desktopChanged();
+    const auto o=doc.object();const bool move=o.value("can_move_resize").toBool();const QString session=o.value("session").toString();const QString mode=o.value("mode").toString();m_windowBridgeStatus=move?("Fenêtres : contrôle actif · "+mode):("Fenêtres : observation seule · "+session);emit desktopChanged();
 }
 void Backend::applyWindowLayout(const QString &layoutId){
     static const QStringList allowed={"focus","half","wide","triple"};if(!allowed.contains(layoutId)){m_windowBridgeStatus="Q-Snap : disposition refusée";emit desktopChanged();return;}
-    QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p,layoutId](int code,QProcess::ExitStatus){QJsonParseError err;const auto doc=QJsonDocument::fromJson(p->readAllStandardOutput(),&err);if(code==0&&err.error==QJsonParseError::NoError&&doc.isObject()&&doc.object().value("ok").toBool()){const int count=doc.object().value("applied").toArray().size();m_windowBridgeStatus=QString("Q-Snap · %1 · %2 fenêtre(s)").arg(layoutId).arg(count);}else{QString reason="non disponible";if(doc.isObject())reason=doc.object().value("error").toString(reason);m_windowBridgeStatus="Q-Snap : "+reason;}emit desktopChanged();p->deleteLater();});p->start("/usr/bin/python3",{windowBridgePath(),"apply",layoutId});
+    QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p,layoutId](int code,QProcess::ExitStatus){QJsonParseError err;const auto doc=QJsonDocument::fromJson(p->readAllStandardOutput(),&err);if(code==0&&err.error==QJsonParseError::NoError&&doc.isObject()&&doc.object().value("ok").toBool()){const auto o=doc.object();const QString mode=o.value("mode").toString(o.value("capability").toObject().value("mode").toString());const int count=o.value("applied").toArray().size();m_windowBridgeStatus=(mode=="wayland-kwin6")?QString("Q-Snap · %1 · KWin Wayland").arg(layoutId):QString("Q-Snap · %1 · %2 fenêtre(s)").arg(layoutId).arg(count);m_missionLayouts.insert(m_activeMission,layoutId);saveDesktopState();}else{QString reason="non disponible";if(doc.isObject())reason=doc.object().value("error").toString(reason);m_windowBridgeStatus="Q-Snap : "+reason;}emit desktopChanged();p->deleteLater();});p->start("/usr/bin/python3",{windowBridgePath(),"apply",layoutId});
 }
 void Backend::optimize(){QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int,QProcess::ExitStatus){const QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();m_activityTitle="Analyse Q-Resource terminée";m_activityDetail=out.isEmpty()?"Aucune modification risquée n’a été appliquée. Les décisions restent réversibles et mesurables.":out.left(420);m_companion="J’ai analysé les ressources. Les modifications critiques restent hors de portée du modèle IA.";emit metricsChanged();emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qresource.py"});}
 void Backend::openDestination(const QString &name){if(name=="Fichiers")launchApp("files");else if(name=="Apps"||name=="AppsNative")launchApp("discover");else if(name=="Paramètres")launchApp("settings");else if(name=="Terminal")launchApp("terminal");else if(name=="Bridge")QProcess::startDetached("konsole",{"-e","python3","/usr/lib/quantic/services/qbridge.py","--help"});else if(name=="Lab")runLab("chsh");}
