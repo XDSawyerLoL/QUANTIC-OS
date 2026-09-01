@@ -91,7 +91,32 @@ def test_quick_settings_are_real_and_allowlisted():
     assert "SystemControls.cpp" in cmake
 
 
+def test_companion_has_local_push_to_talk_and_orb_presence():
+    main_cpp = read("shell/src/main.cpp")
+    header = read("shell/src/CompanionBridge.h")
+    impl = read("shell/src/CompanionBridge.cpp")
+    main_qml = read("shell/qml/Main.qml")
+    page = read("shell/qml/pages/CompanionPage.qml")
+    orb = read("shell/qml/components/QOrb.qml")
+    cmake = read("shell/CMakeLists.txt")
+    assert 'setContextProperty("companionBridge"' in main_cpp
+    assert "Q_INVOKABLE bool speak" in header
+    assert "Q_INVOKABLE bool listenOnce" in header
+    assert 'findExecutable({"piper","piper-tts"})' in impl
+    assert 'findExecutable({"whisper-cli","whisper-cpp","main"})' in impl
+    assert 'findExecutable({"pw-record","arecord"})' in impl
+    assert 'findExecutable({"pw-play","aplay"})' in impl
+    assert "QTimer::singleShot(6200" in impl
+    assert "bash" not in impl and "sh -c" not in impl
+    assert "QOrb {" in main_qml
+    assert "onHoldVoice: companionBridge.listenOnce()" in main_qml
+    assert "companionBridge.speak(backend.companionMessage)" in page
+    assert "signal holdVoice()" in orb
+    assert "pressAndHoldInterval" in orb
+    assert "CompanionBridge.cpp" in cmake and "QOrb.qml" in cmake
+
+
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
-    for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml"]:
+    for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml", "QOrb.qml"]:
         assert f"qml/components/{name}" in cmake
