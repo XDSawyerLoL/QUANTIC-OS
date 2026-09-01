@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT_TREE=${1:?Usage: provision-final-ai.sh ROOT_TREE WORKDIR}
 WORK=${2:?Usage: provision-final-ai.sh ROOT_TREE WORKDIR}
 MODEL_DIR="$ROOT_TREE/usr/share/quantic/models"
+HF_DIR="$MODEL_DIR/hf"
 RESOLV_DST="$ROOT_TREE/etc/resolv.conf"
 RESOLV_BACKUP="$WORK/resolv.conf.root-tree.backup"
 HAD_RESOLV=0
 
-sudo mkdir -p "$MODEL_DIR" "$WORK"
+sudo mkdir -p "$MODEL_DIR" "$HF_DIR" "$WORK"
 
 restore_resolver() {
   if [[ "$HAD_RESOLV" == 1 && -f "$RESOLV_BACKUP" ]]; then
@@ -44,10 +45,13 @@ sudo chroot "$ROOT_TREE" /usr/bin/getent hosts mirrors.fedoraproject.org >/dev/n
 
 echo '[AI] Installing local inference, containment and audio runtime'
 sudo chroot "$ROOT_TREE" /usr/bin/dnf -y --setopt=retries=5 --setopt=timeout=30 install \
-  ollama whisper-cpp espeak-ng alsa-utils pipewire-utils python3-psutil python3-pip bubblewrap
+  ollama whisper-cpp espeak-ng alsa-utils pipewire-utils libsndfile python3-psutil python3-pip bubblewrap
 sudo chroot "$ROOT_TREE" /usr/bin/dnf clean all
 
-echo '[AI] Installing local Piper neural TTS runtime'
+echo '[AI] Installing premium Kokoro neural TTS and Piper fallback'
+sudo chroot "$ROOT_TREE" /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages \
+  'kokoro>=0.9.4' soundfile numpy || \
+  echo '[AI] WARNING: Kokoro install unavailable; Piper fallback will remain active.'
 sudo chroot "$ROOT_TREE" /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages piper-tts || \
   echo '[AI] WARNING: Piper install unavailable; espeak-ng fallback remains installed.'
 
@@ -56,12 +60,24 @@ WHISPER_URL='https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base
 sudo curl -fL --retry 5 --retry-all-errors "$WHISPER_URL" -o "$MODEL_DIR/ggml-base.bin"
 test -s "$MODEL_DIR/ggml-base.bin"
 
-echo '[AI] Embedding French neural voice'
+echo '[AI] Embedding French Piper fallback voice'
 PIPER_BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium'
 sudo curl -fL --retry 5 --retry-all-errors "$PIPER_BASE/fr_FR-siwis-medium.onnx?download=true" -o "$MODEL_DIR/fr_FR-siwis-medium.onnx"
 sudo curl -fL --retry 5 --retry-all-errors "$PIPER_BASE/fr_FR-siwis-medium.onnx.json?download=true" -o "$MODEL_DIR/fr_FR-siwis-medium.onnx.json"
 test -s "$MODEL_DIR/fr_FR-siwis-medium.onnx"
 test -s "$MODEL_DIR/fr_FR-siwis-medium.onnx.json"
+
+echo '[AI] Warming premium French Kokoro voice cache'
+if [[ -f "$ROOT_TREE/usr/lib/quantic/services/qvoice_neural.py" ]]; then
+  sudo chroot "$ROOT_TREE" /usr/bin/env HF_HOME=/usr/share/quantic/models/hf HF_HUB_DISABLE_TELEMETRY=1 \
+    /usr/bin/python3 /usr/lib/quantic/services/qvoice_neural.py \
+    --warmup --output /tmp/quantic-kokoro-warmup.wav >/tmp/quantic-kokoro-warmup.json 2>/tmp/quantic-kokoro-warmup.err || \
+    echo '[AI] WARNING: Kokoro model warmup failed; first runtime use may download/cache or fall back to Piper.'
+  sudo rm -f "$ROOT_TREE/tmp/quantic-kokoro-warmup.wav" "$ROOT_TREE/tmp/quantic-kokoro-warmup.json" "$ROOT_TREE/tmp/quantic-kokoro-warmup.err" || true
+else
+  echo '[AI] WARNING: qvoice_neural.py not present yet; skipping Kokoro warmup.'
+fi
+
 sudo chmod -R a+rX "$ROOT_TREE/usr/share/quantic"
 
 echo '[AI] Verifying runtime payload'
@@ -70,5 +86,5 @@ test -x "$ROOT_TREE/usr/bin/bwrap"
 test -s "$MODEL_DIR/ggml-base.bin"
 test -s "$MODEL_DIR/fr_FR-siwis-medium.onnx"
 
-echo '[AI] Runtime ready. Large LLM weights are intentionally stored on QUANTIC-DATA, not in the ISO.'
+echo '[AI] Runtime ready. Premium local voice prefers Kokoro; Piper is the offline fallback. Large LLM weights stay on QUANTIC-DATA.'
 exit 0
