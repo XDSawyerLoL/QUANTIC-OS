@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Q-Agent Runtime: policy + simulation + Q-Twin + verify + rollback + persistent tasks."""
+"""Q-Agent Runtime: policy + simulation + Q-Twin + verify + rollback + durable V2 plans."""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -15,6 +15,9 @@ try:
     from .qtasks import load as load_task, transition
     from .qverify import verify
     from .qrollback import begin as rollback_begin, mark as rollback_mark, rollback
+    from .qcontracts import Action, Goal, Plan, Receipt, to_dict
+    from .qeventbus import EventBus
+    from .qautonomy import save_goal, save_plan, load_goal, load_plan, update_goal, update_plan, resumable_goals
 except ImportError:
     from qpolicy import decide, audit
     from qsimulation import evaluate, persist
@@ -23,8 +26,12 @@ except ImportError:
     from qtasks import load as load_task, transition
     from qverify import verify
     from qrollback import begin as rollback_begin, mark as rollback_mark, rollback
+    from qcontracts import Action, Goal, Plan, Receipt, to_dict
+    from qeventbus import EventBus
+    from qautonomy import save_goal, save_plan, load_goal, load_plan, update_goal, update_plan, resumable_goals
 
 RUNTIME_AUDIT = Path("/var/lib/quantic/audit/runtime.jsonl")
+BUS = EventBus()
 
 
 def _runtime_log(row: dict) -> None:
@@ -32,6 +39,13 @@ def _runtime_log(row: dict) -> None:
         RUNTIME_AUDIT.parent.mkdir(parents=True, exist_ok=True)
         with RUNTIME_AUDIT.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), **row}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _emit(topic: str, payload: dict, correlation_id: str | None = None) -> None:
+    try:
+        BUS.emit(topic, payload, "qagent_runtime", correlation_id)
     except OSError:
         pass
 
@@ -98,6 +112,106 @@ def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_le
     return out
 
 
+def register_goal_plan(goal: Goal, plan: Plan) -> dict:
+    """Persist a goal/plan pair and publish the durable lifecycle events."""
+    if plan.goal_id != goal.id:
+        raise ValueError("plan.goal_id must match goal.id")
+    save_goal(goal, active_plan_id=plan.id)
+    save_plan(plan)
+    _emit("goal.created", to_dict(goal), goal.id)
+    _emit("plan.created", to_dict(plan), goal.id)
+    return {"goal_id": goal.id, "plan_id": plan.id, "actions": len(plan.actions)}
+
+
+def _action_from_row(row: dict) -> Action:
+    return Action(**row)
+
+
+def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str = "SANDBOX", max_actions: int | None = None) -> dict:
+    """Execute or resume a durable plan from its next unfinished action."""
+    plan_state = load_plan(plan_id)
+    plan = plan_state.plan
+    goal_id = str(plan["goal_id"])
+    goal_state = load_goal(goal_id)
+    actions = [_action_from_row(x) for x in plan.get("actions", [])]
+
+    start = int(plan_state.next_action)
+    if start >= len(actions):
+        update_plan(plan_id, state="done")
+        update_goal(goal_id, state="done", current_action=len(actions))
+        _emit("goal.completed", {"goal_id": goal_id, "plan_id": plan_id}, goal_id)
+        return {"ok": True, "stage": "done", "goal_id": goal_id, "plan_id": plan_id, "completed": len(actions)}
+
+    update_plan(plan_id, state="running")
+    update_goal(goal_id, state="running", attempts=goal_state.attempts + 1, current_action=start)
+    _emit("plan.started", {"plan_id": plan_id, "resume_from": start}, goal_id)
+
+    executed = 0
+    for index in range(start, len(actions)):
+        if max_actions is not None and executed >= max_actions:
+            update_plan(plan_id, state="paused", next_action=index)
+            update_goal(goal_id, state="paused", current_action=index)
+            _emit("plan.paused", {"plan_id": plan_id, "next_action": index, "reason": "action_budget"}, goal_id)
+            return {"ok": False, "stage": "paused", "goal_id": goal_id, "plan_id": plan_id, "next_action": index}
+
+        action = actions[index]
+        _emit("action.started", {"plan_id": plan_id, "index": index, "action": to_dict(action)}, goal_id)
+        out = execute(action.tool, action.arguments, approved=approved, simulation_level=simulation_level)
+        receipt = Receipt(
+            action_id=action.id,
+            goal_id=goal_id,
+            ok=bool(out.get("ok")),
+            stage=str(out.get("stage", "unknown")),
+            evidence={"runtime": out},
+            error=out.get("error"),
+        )
+        _emit("receipt.created", to_dict(receipt), goal_id)
+
+        if out.get("stage") == "approval":
+            update_plan(plan_id, state="waiting_approval", next_action=index, last_receipt_id=receipt.id)
+            update_goal(goal_id, state="waiting_approval", current_action=index)
+            _emit("approval.required", {"plan_id": plan_id, "action_id": action.id, "receipt_id": receipt.id}, goal_id)
+            return {"ok": False, "stage": "approval", "goal_id": goal_id, "plan_id": plan_id, "receipt": to_dict(receipt)}
+
+        if not out.get("ok"):
+            update_plan(plan_id, state="failed", next_action=index, last_receipt_id=receipt.id)
+            update_goal(goal_id, state="failed", current_action=index, last_error=receipt.error or receipt.stage)
+            _emit("action.failed", {"plan_id": plan_id, "index": index, "receipt": to_dict(receipt)}, goal_id)
+            return {"ok": False, "stage": "failed", "goal_id": goal_id, "plan_id": plan_id, "receipt": to_dict(receipt)}
+
+        completed = list(plan_state.completed_action_ids or [])
+        if action.id not in completed:
+            completed.append(action.id)
+        plan_state = update_plan(
+            plan_id,
+            state="running",
+            next_action=index + 1,
+            completed_action_ids=completed,
+            last_receipt_id=receipt.id,
+        )
+        update_goal(goal_id, state="running", current_action=index + 1)
+        _emit("action.completed", {"plan_id": plan_id, "index": index, "receipt": to_dict(receipt)}, goal_id)
+        executed += 1
+
+    update_plan(plan_id, state="done", next_action=len(actions))
+    update_goal(goal_id, state="done", current_action=len(actions))
+    _emit("plan.completed", {"plan_id": plan_id, "actions": len(actions)}, goal_id)
+    _emit("goal.completed", {"goal_id": goal_id, "plan_id": plan_id}, goal_id)
+    return {"ok": True, "stage": "done", "goal_id": goal_id, "plan_id": plan_id, "completed": len(actions)}
+
+
+def resume_pending(*, approved: bool = False, simulation_level: str = "SANDBOX") -> list[dict]:
+    """Resume durable goals after restart, excluding approval-blocked work."""
+    results: list[dict] = []
+    for goal_state in resumable_goals():
+        plan_id = goal_state.active_plan_id
+        if not plan_id:
+            continue
+        _emit("goal.resuming", {"goal_id": goal_state.goal.get("id"), "plan_id": plan_id}, goal_state.goal.get("id"))
+        results.append(execute_plan(plan_id, approved=approved, simulation_level=simulation_level))
+    return results
+
+
 def execute_task(task_id: str, *, approved: bool = False, simulation_level: str = "SANDBOX") -> dict:
     task = load_task(task_id)
     transition(task_id, "running")
@@ -119,13 +233,19 @@ if __name__ == "__main__":
     ap.add_argument("tool", nargs="?")
     ap.add_argument("arguments", nargs="?", default="{}")
     ap.add_argument("--task", default=None)
+    ap.add_argument("--plan", default=None)
+    ap.add_argument("--resume", action="store_true")
     ap.add_argument("--approved", action="store_true")
     ap.add_argument("--level", default="SANDBOX")
     ns = ap.parse_args()
-    if ns.task:
+    if ns.resume:
+        result = resume_pending(approved=ns.approved, simulation_level=ns.level)
+    elif ns.plan:
+        result = execute_plan(ns.plan, approved=ns.approved, simulation_level=ns.level)
+    elif ns.task:
         result = execute_task(ns.task, approved=ns.approved, simulation_level=ns.level)
     else:
         if not ns.tool:
-            raise SystemExit("tool is required unless --task is used")
+            raise SystemExit("tool is required unless --task, --plan or --resume is used")
         result = execute(ns.tool, json.loads(ns.arguments), approved=ns.approved, simulation_level=ns.level)
     print(json.dumps(result, indent=2, ensure_ascii=False))
