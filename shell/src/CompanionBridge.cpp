@@ -1,6 +1,8 @@
 #include "CompanionBridge.h"
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryFile>
