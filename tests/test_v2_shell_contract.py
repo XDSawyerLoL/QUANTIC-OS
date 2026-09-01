@@ -11,8 +11,15 @@ def test_main_uses_quantic_desktop_primitives():
     main = read("shell/qml/Main.qml")
     assert "QBar {" in main
     assert "QSpace {" in main
+    assert "QuickSettings {" in main
+    assert "NotificationCenter {" in main
+    assert "QSnap {" in main
     assert 'sequence: "Meta+Space"' in main
+    assert 'sequence: "Meta+N"' in main
+    assert 'sequence: "Meta+S"' in main
     assert 'property string activeMission' in main
+    assert 'property string activeLayout' in main
+    assert "backend.askCompanion(prompt)" in main
     assert "StackLayout" in main
 
 
@@ -33,7 +40,33 @@ def test_qspace_is_universal_command_surface():
     assert "ESPACES" in qspace
 
 
+def test_phase2_panels_have_escape_and_click_outside_close():
+    for path in [
+        "shell/qml/components/QuickSettings.qml",
+        "shell/qml/components/NotificationCenter.qml",
+        "shell/qml/components/QSnap.qml",
+    ]:
+        content = read(path)
+        assert "Popup.CloseOnEscape" in content
+        assert "Popup.CloseOnPressOutside" in content
+
+
+def test_qsnap_exposes_layout_choice_without_direct_privilege():
+    snap = read("shell/qml/components/QSnap.qml")
+    assert "signal layoutChosen(string layoutId)" in snap
+    assert '"split"' in snap
+    assert '"focus"' in snap
+    assert '"triple"' in snap
+    assert "backend" not in snap
+
+
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
-    assert "qml/components/QBar.qml" in cmake
-    assert "qml/components/QSpace.qml" in cmake
+    for path in [
+        "qml/components/QBar.qml",
+        "qml/components/QSpace.qml",
+        "qml/components/QuickSettings.qml",
+        "qml/components/NotificationCenter.qml",
+        "qml/components/QSnap.qml",
+    ]:
+        assert path in cmake
