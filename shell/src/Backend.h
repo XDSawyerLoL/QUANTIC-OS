@@ -28,6 +28,9 @@ class Backend final : public QObject {
     Q_PROPERTY(QString companionMessage READ companionMessage NOTIFY companionChanged)
     Q_PROPERTY(bool companionBusy READ companionBusy NOTIFY companionChanged)
     Q_PROPERTY(QString labOutput READ labOutput NOTIFY labChanged)
+    Q_PROPERTY(QString activeMission READ activeMission NOTIFY desktopChanged)
+    Q_PROPERTY(QVariantList recentApps READ recentApps NOTIFY desktopChanged)
+    Q_PROPERTY(QString lastLaunchStatus READ lastLaunchStatus NOTIFY desktopChanged)
 public:
     explicit Backend(QObject *parent=nullptr);
     double cpu() const { return m_cpu; }
@@ -52,14 +55,21 @@ public:
     QString companionMessage() const { return m_companion; }
     bool companionBusy() const { return m_companionBusy; }
     QString labOutput() const { return m_labOutput; }
+    QString activeMission() const { return m_activeMission; }
+    QVariantList recentApps() const { return m_recentApps; }
+    QString lastLaunchStatus() const { return m_lastLaunchStatus; }
     Q_INVOKABLE void optimize();
     Q_INVOKABLE void openDestination(const QString &name);
     Q_INVOKABLE void askCompanion(const QString &prompt);
     Q_INVOKABLE void runLab(const QString &experiment);
+    Q_INVOKABLE bool launchApp(const QString &appId);
+    Q_INVOKABLE void setActiveMission(const QString &mission);
+    Q_INVOKABLE void rememberDesktopState();
 signals:
     void metricsChanged();
     void companionChanged();
     void labChanged();
+    void desktopChanged();
 private slots:
     void refresh();
 private:
@@ -70,6 +80,9 @@ private:
     QString probeVolume();
     bool probeOllama();
     void updateWorkload();
+    void loadDesktopState();
+    void saveDesktopState() const;
+    void noteRecentApp(const QString &appId);
     double m_cpu=0, m_ramPercent=0, m_ramUsedGb=0, m_ramTotalGb=0, m_cpuTempC=0;
     int m_gpu=-1;
     QString m_workload="Équilibré";
@@ -82,6 +95,9 @@ private:
     QString m_companion="Quantic est prêt. Je surveille le système sans effectuer d’action sensible sans autorisation.";
     bool m_companionBusy=false;
     QString m_labOutput="Sélectionne une expérience. Les calculs seront exécutés localement par Q-Core.";
+    QString m_activeMission="Quantic OS";
+    QVariantList m_recentApps;
+    QString m_lastLaunchStatus="Prêt";
     quint64 m_prevTotal=0, m_prevIdle=0;
     QTimer m_timer;
 };
