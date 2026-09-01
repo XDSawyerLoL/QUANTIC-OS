@@ -9,6 +9,37 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QTimer>
+#include <memory>
+
+namespace {
+struct VadState {
+    int ticks=0;
+    int loudTicks=0;
+    int silentTicks=0;
+    double noiseFloor=180.0;
+    bool heardSpeech=false;
+};
+
+double pcm16MeanAbsTail(const QString &wavPath) {
+    QFile f(wavPath);
+    if(!f.open(QIODevice::ReadOnly))return -1.0;
+    const qint64 size=f.size();
+    if(size<=44)return -1.0;
+    qint64 start=qMax<qint64>(44,size-3200);
+    if(((start-44)&1)!=0)++start;
+    if(!f.seek(start))return -1.0;
+    const QByteArray pcm=f.read(3200);
+    if(pcm.size()<2)return -1.0;
+    const auto *data=reinterpret_cast<const unsigned char *>(pcm.constData());
+    qint64 sum=0;int samples=0;
+    for(int i=0;i+1<pcm.size();i+=2){
+        const quint16 raw=quint16(data[i])|(quint16(data[i+1])<<8);
+        const qint16 sample=static_cast<qint16>(raw);
+        sum+=qAbs(int(sample));++samples;
+    }
+    return samples?double(sum)/double(samples):-1.0;
+}
+}
 
 CompanionBridge::CompanionBridge(QObject *parent): QObject(parent) { refresh(); }
 
@@ -302,28 +333,68 @@ void CompanionBridge::stopSpeaking(){
 }
 bool CompanionBridge::listenOnce(){
     if(m_listening)return false;
-    const QString recorder=findExecutable({"pw-record","arecord"});
+    const QString recorder=findExecutable({"arecord","pw-record"});
     const QString whisper=findExecutable({"whisper-cli","whisper-cpp","main"}); const QString model=findWhisperModel();
     if(recorder.isEmpty()||whisper.isEmpty()||model.isEmpty()){refresh();return false;}
     QTemporaryFile *wav=new QTemporaryFile(QDir::tempPath()+"/quantic-listen-XXXXXX.wav",this); wav->setAutoRemove(false);
     if(!wav->open()){wav->deleteLater();return false;} const QString wavPath=wav->fileName(); wav->close();
     if(m_speaking) stopSpeaking();
     QProcess *rec=new QProcess(this); m_listener=rec; m_listening=true; setState("écoute"); emit changed();
+    const bool adaptiveVad=recorder.endsWith("arecord");
+    const auto vadState=std::make_shared<VadState>();
     QStringList args;
-    if(recorder.endsWith("pw-record")) args={"--rate","16000","--channels","1",wavPath}; else args={"-f","S16_LE","-r","16000","-c","1","-d","6",wavPath};
+    if(adaptiveVad) args={"-q","-f","S16_LE","-r","16000","-c","1","-t","wav",wavPath};
+    else args={"--rate","16000","--channels","1",wavPath};
     rec->start(recorder,args);
     if(!rec->waitForStarted(200)){rec->deleteLater();QFile::remove(wavPath);wav->deleteLater();m_listening=false;setState("prêt");emit changed();return false;}
-    QTimer::singleShot(6200,this,[this,rec,wav,wavPath,whisper,model](){
-        if(rec->state()!=QProcess::NotRunning) rec->terminate(); rec->waitForFinished(500); rec->deleteLater();
-        QProcess *stt=new QProcess(this); m_listener=stt; setState("comprend"); emit changed();
+
+    QTimer *endpointTimer=new QTimer(rec);endpointTimer->setInterval(100);
+    connect(rec,&QProcess::finished,this,[this,rec,endpointTimer,wav,wavPath,whisper,model,vadState,adaptiveVad](int,QProcess::ExitStatus){
+        endpointTimer->stop();rec->deleteLater();
+        if(adaptiveVad&&!vadState->heardSpeech){
+            QFile::remove(wavPath);wav->deleteLater();m_lastTranscript.clear();m_listening=false;m_listener=nullptr;setState("prêt");emit changed();return;
+        }
+        QProcess *stt=new QProcess(this);m_listener=stt;setState("comprend");emit changed();
         connect(stt,&QProcess::finished,this,[this,stt,wav,wavPath](int code,QProcess::ExitStatus){
-            QString out=QString::fromUtf8(stt->readAllStandardOutput()); if(out.isEmpty()) out=QString::fromUtf8(stt->readAllStandardError());
-            stt->deleteLater(); QFile::remove(wavPath); wav->deleteLater();
-            QStringList lines=out.split('\n',Qt::SkipEmptyParts); QString text;
-            for(auto line:lines){ line=line.trimmed(); if(line.startsWith('[')&&line.contains(']')) line=line.section(']',1).trimmed(); if(line.size()>1&&!line.startsWith("whisper_")) text += (text.isEmpty()?"":" ")+line; }
-            m_lastTranscript=text.left(1200).trimmed(); m_listening=false; m_listener=nullptr; setState("prêt"); emit changed(); if(code==0&&!m_lastTranscript.isEmpty())emit transcriptReady(m_lastTranscript);
+            QString out=QString::fromUtf8(stt->readAllStandardOutput());if(out.isEmpty())out=QString::fromUtf8(stt->readAllStandardError());
+            stt->deleteLater();QFile::remove(wavPath);wav->deleteLater();
+            QStringList lines=out.split('\n',Qt::SkipEmptyParts);QString text;
+            for(auto line:lines){line=line.trimmed();if(line.startsWith('[')&&line.contains(']'))line=line.section(']',1).trimmed();if(line.size()>1&&!line.startsWith("whisper_"))text+=(text.isEmpty()?"":" ")+line;}
+            m_lastTranscript=text.left(1200).trimmed();m_listening=false;m_listener=nullptr;setState("prêt");emit changed();if(code==0&&!m_lastTranscript.isEmpty())emit transcriptReady(m_lastTranscript);
         });
         stt->start(whisper,{"-m",model,"-f",wavPath,"-l","fr","-nt"});
     });
+
+    if(adaptiveVad){
+        connect(endpointTimer,&QTimer::timeout,this,[rec,endpointTimer,wavPath,vadState](){
+            if(rec->state()==QProcess::NotRunning){endpointTimer->stop();return;}
+            ++vadState->ticks;
+            const double level=pcm16MeanAbsTail(wavPath);
+            if(level>=0.0){
+                if(vadState->ticks<=2){
+                    vadState->noiseFloor=(vadState->noiseFloor+level)*0.5;
+                }else{
+                    const double startThreshold=qMax(380.0,vadState->noiseFloor*2.4+120.0);
+                    const bool loud=level>startThreshold;
+                    if(!vadState->heardSpeech){
+                        if(loud)++vadState->loudTicks;else{vadState->loudTicks=0;vadState->noiseFloor=vadState->noiseFloor*0.86+level*0.14;}
+                        if(vadState->loudTicks>=2){vadState->heardSpeech=true;vadState->silentTicks=0;}
+                    }else{
+                        const double silenceThreshold=qMax(300.0,vadState->noiseFloor*1.65+80.0);
+                        if(level<silenceThreshold)++vadState->silentTicks;else vadState->silentTicks=0;
+                    }
+                }
+            }
+            const bool speechEnded=vadState->heardSpeech&&vadState->silentTicks>=7&&vadState->ticks>=10;
+            const bool hardLimit=vadState->ticks>=60;
+            if(speechEnded||hardLimit){
+                endpointTimer->stop();rec->terminate();
+                QTimer::singleShot(260,rec,[rec](){if(rec->state()!=QProcess::NotRunning)rec->kill();});
+            }
+        });
+        endpointTimer->start();
+    }else{
+        QTimer::singleShot(6000,rec,[rec](){if(rec->state()!=QProcess::NotRunning)rec->terminate();});
+    }
     return true;
 }
