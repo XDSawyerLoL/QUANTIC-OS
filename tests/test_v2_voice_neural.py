@@ -58,6 +58,9 @@ def test_phrase_streaming_starts_before_full_answer_is_synthesized():
     assert "synthesizeNextChunk()" in impl
     assert "out.mid(0,12)" in impl
     assert "m_stopRequested" in impl
+    assert "beginStreamingSpeech" in impl
+    assert "pushStreamingText" in impl
+    assert "finishStreamingSpeech" in impl
 
 
 def test_agent_exposes_real_ollama_delta_streaming_for_shell_pipeline():
@@ -71,3 +74,32 @@ def test_agent_exposes_real_ollama_delta_streaming_for_shell_pipeline():
     assert "flush=True" in agent
     assert "companionDelta(QString text)" in header
     assert "companionStreamFinished()" in header
+
+
+def test_neural_model_is_kept_warm_between_streamed_phrases():
+    service = read("services/qvoice_neural.py")
+    header = read("shell/src/CompanionBridge.h")
+    impl = read("shell/src/CompanionBridge.cpp")
+    assert "class VoiceRuntime" in service
+    assert "def serve(runtime: VoiceRuntime" in service
+    assert 'parser.add_argument("--server"' in service
+    assert '"type": "ready"' in service
+    assert '"type": "result"' in service
+    assert "self._chatterbox" in service
+    assert "self._kokoro" in service
+    assert "m_voiceWorker" in header
+    assert "ensureNeuralWorker" in impl
+    assert '"--server","--engine","auto"' in impl
+    assert "m_voicePendingId" in impl
+
+
+def test_shell_routes_streamed_text_to_phrase_level_speech_without_duplicate_full_answer():
+    backend_cpp = read("shell/src/Backend.cpp")
+    main = read("shell/qml/Main.qml")
+    assert "readyReadStandardOutput" in backend_cpp
+    assert 'qagentPath(),"--stream-ndjson"' in backend_cpp
+    assert "emit companionDelta(delta)" in backend_cpp
+    assert "onCompanionDelta" in main
+    assert "pushStreamingText(text)" in main
+    assert "onCompanionStreamFinished" in main
+    assert "finishStreamingSpeech()" in main
