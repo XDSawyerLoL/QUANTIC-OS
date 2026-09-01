@@ -69,6 +69,7 @@ private:
     QStringList m_readyAudioQueue;
     QString m_streamSpeechBuffer;
     QProcess *m_speech=nullptr;
+    QProcess *m_player=nullptr;
     QProcess *m_listener=nullptr;
     QProcess *m_voiceWorker=nullptr;
     int m_voiceRequestId=0;
