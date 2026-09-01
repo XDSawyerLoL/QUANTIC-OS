@@ -109,12 +109,12 @@ QStringList CompanionBridge::speechChunks(const QString &text) const {
 }
 
 void CompanionBridge::refresh(){
-    const bool neural=neuralVoiceAvailable();
+    m_neuralVoiceReady=neuralVoiceAvailable();
     const bool piper=!findExecutable({"piper","piper-tts"}).isEmpty();
     const bool voice=!findVoiceModel().isEmpty();
     const bool whisper=!findExecutable({"whisper-cli","whisper-cpp","main"}).isEmpty();
     const bool sttModel=!findWhisperModel().isEmpty();
-    if(neural){ m_voiceEngine="Neural adaptatif · Chatterbox/Kokoro"; m_voiceStatus=(whisper&&sttModel)?"Voix premium fluide : prête":"Voix premium : sortie prête · écoute indisponible"; }
+    if(m_neuralVoiceReady){ m_voiceEngine="Neural adaptatif · Chatterbox/Kokoro"; m_voiceStatus=(whisper&&sttModel)?"Voix premium fluide : prête":"Voix premium : sortie prête · écoute indisponible"; }
     else if(piper&&voice){ m_voiceEngine="Piper · secours"; m_voiceStatus=(whisper&&sttModel)?"Voix locale : mode secours":"Voix locale : sortie prête · écoute indisponible"; }
     else { m_voiceEngine="indisponible"; m_voiceStatus="Voix locale : composants à installer"; }
     emit changed();
@@ -157,7 +157,7 @@ bool CompanionBridge::synthesizeNextChunk(){
     if(m_stopRequested||m_speechQueue.isEmpty()) return false;
     const QString chunk=m_speechQueue.takeFirst();
     const QString python=findExecutable({"python3"}); const QString adapter=neuralVoiceAdapter();
-    if(!python.isEmpty()&&!adapter.isEmpty()&&neuralVoiceAvailable()){
+    if(m_neuralVoiceReady&&!python.isEmpty()&&!adapter.isEmpty()){
         QTemporaryFile *wav=new QTemporaryFile(QDir::tempPath()+"/quantic-neural-XXXXXX.wav",this); wav->setAutoRemove(false);
         if(!wav->open()){wav->deleteLater();return speakPiper(chunk);} const QString wavPath=wav->fileName(); wav->close();
         QProcess *synth=new QProcess(this); m_speech=synth; m_speaking=true; setState("parle"); emit changed();
@@ -184,16 +184,54 @@ bool CompanionBridge::synthesizeNextChunk(){
     return speakPiper(chunk);
 }
 
-bool CompanionBridge::speak(const QString &text){
-    if(m_speaking||m_listening)return false;
-    m_speechQueue=speechChunks(text);
-    if(m_speechQueue.isEmpty())return false;
-    m_stopRequested=false; m_speaking=true; setState("parle"); emit changed();
+bool CompanionBridge::enqueueSpeech(const QString &text){
+    if(m_listening)return false;
+    const QStringList chunks=speechChunks(text);if(chunks.isEmpty())return false;
+    m_stopRequested=false;m_speechQueue.append(chunks);
+    if(m_speaking){emit changed();return true;}
+    m_speaking=true;setState("parle");emit changed();
     if(synthesizeNextChunk())return true;
     m_speaking=false;setState("prêt");emit changed();return false;
 }
+
+void CompanionBridge::beginStreamingSpeech(){
+    m_streamSpeechBuffer.clear();
+    if(m_speaking)stopSpeaking();
+    m_stopRequested=false;
+}
+
+void CompanionBridge::pushStreamingText(const QString &delta){
+    if(delta.isEmpty()||!m_autoSpeak)return;
+    m_streamSpeechBuffer+=delta;
+    for(;;){
+        int cut=-1;
+        const int maxScan=qMin(m_streamSpeechBuffer.size(),260);
+        for(int i=0;i<maxScan;++i){
+            const QChar c=m_streamSpeechBuffer.at(i);
+            if((c=='.'||c=='!'||c=='?'||c==QChar(0x2026))&&i>=28){cut=i+1;break;}
+        }
+        if(cut<0&&m_streamSpeechBuffer.size()>190){
+            const int comma=qMax(m_streamSpeechBuffer.lastIndexOf(',',180),qMax(m_streamSpeechBuffer.lastIndexOf(';',180),m_streamSpeechBuffer.lastIndexOf(':',180)));
+            if(comma>=80&&comma<220)cut=comma+1;
+        }
+        if(cut<0)break;
+        const QString phrase=m_streamSpeechBuffer.left(cut).trimmed();m_streamSpeechBuffer=m_streamSpeechBuffer.mid(cut).trimmed();
+        if(!phrase.isEmpty())enqueueSpeech(phrase);
+    }
+}
+
+void CompanionBridge::finishStreamingSpeech(){
+    const QString tail=m_streamSpeechBuffer.trimmed();m_streamSpeechBuffer.clear();
+    if(m_autoSpeak&&!tail.isEmpty())enqueueSpeech(tail);
+}
+
+bool CompanionBridge::speak(const QString &text){
+    if(m_speaking||m_listening)return false;
+    m_speechQueue.clear();
+    return enqueueSpeech(text);
+}
 void CompanionBridge::stopSpeaking(){
-    m_stopRequested=true;m_speechQueue.clear();if(m_speech){m_speech->kill();m_speech=nullptr;}m_speaking=false;setState("prêt");emit changed();
+    m_stopRequested=true;m_streamSpeechBuffer.clear();m_speechQueue.clear();if(m_speech){m_speech->kill();m_speech=nullptr;}m_speaking=false;setState("prêt");emit changed();
 }
 bool CompanionBridge::listenOnce(){
     if(m_listening)return false;
