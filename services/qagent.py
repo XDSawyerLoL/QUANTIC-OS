@@ -11,6 +11,7 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 try:
     from .qmodelhub import choose_model
@@ -50,23 +51,21 @@ def companion_context(memory_path: str | None = None) -> str:
     return json.dumps(safe, ensure_ascii=False) if safe else ""
 
 
-def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> str:
+def _payload(model: str, prompt: str, memory_path: str | None, stream: bool) -> bytes:
     memory = companion_context(memory_path)
     system = SYSTEM + ("\nContexte local du compagnon, issu de la mémoire locale de confiance : " + memory if memory else "")
-    payload = json.dumps({
+    return json.dumps({
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
-        "stream": False,
+        "stream": stream,
     }).encode("utf-8")
-    req = urllib.request.Request(
-        host.rstrip("/") + "/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+
+
+def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> str:
+    req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, False), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
             data = json.load(response)
@@ -75,12 +74,42 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> s
     return data.get("message", {}).get("content", "")
 
 
+def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = None, emit: Callable[[str], None] | None = None) -> str:
+    """Stream Ollama chunks. Each emitted value is already-safe assistant text."""
+    req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, True), headers={"Content-Type": "application/json"}, method="POST")
+    chunks: list[str] = []
+    try:
+        with urllib.request.urlopen(req, timeout=120) as response:
+            for raw in response:
+                if not raw.strip():
+                    continue
+                try:
+                    item = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                text = item.get("message", {}).get("content", "")
+                if text:
+                    chunks.append(text)
+                    if emit is not None:
+                        emit(text)
+                if item.get("done"):
+                    break
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Impossible de joindre Ollama local sur {host} : {exc}") from exc
+    return "".join(chunks)
+
+
+def _ndjson_chunk(text: str) -> None:
+    print(json.dumps({"type": "delta", "text": text}, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compagnon local Q-Agent de Quantic OS")
     parser.add_argument("--model", default="auto", help="modèle Ollama ou 'auto'")
     parser.add_argument("--role", default="chat", choices=["chat", "tools", "coding", "vision", "reasoning"])
     parser.add_argument("--host", default="http://127.0.0.1:11434")
     parser.add_argument("--memory", default=None, help="base de mémoire locale du compagnon")
+    parser.add_argument("--stream-ndjson", action="store_true", help="émet les deltas Ollama en NDJSON pour le shell")
     parser.add_argument("prompt", nargs="*")
     args = parser.parse_args()
 
@@ -88,13 +117,15 @@ def main() -> None:
     if model == "auto":
         model = choose_model(args.role)
         if not model:
-            raise SystemExit(
-                "Aucun modèle local adapté n'est installé. Lance scripts/setup-local-ai.sh "
-                "pour installer la pile locale sans clé par défaut."
-            )
+            raise SystemExit("Aucun modèle local adapté n'est installé. Lance scripts/setup-local-ai.sh pour installer la pile locale sans clé par défaut.")
 
     if args.prompt:
-        print(ask(model, " ".join(args.prompt), args.host, args.memory))
+        prompt = " ".join(args.prompt)
+        if args.stream_ndjson:
+            stream_ask(model, prompt, args.host, args.memory, _ndjson_chunk)
+            print(json.dumps({"type": "done"}, separators=(",", ":")), flush=True)
+        else:
+            print(ask(model, prompt, args.host, args.memory))
         return
 
     print(f"Q-Agent — modèle local={model}. Tape /quit pour quitter.")
