@@ -59,6 +59,20 @@ def test_real_app_launcher_is_allowlisted_and_mission_aware():
     assert "bash -lc" not in impl[impl.find("bool Backend::launchApp"):impl.find("void Backend::setActiveMission")]
 
 
+def test_mission_ui_drives_exact_window_snapshot_bridge():
+    main = read("shell/qml/Main.qml")
+    impl = read("shell/src/Backend.cpp")
+    assert 'text: "Enregistrer la Mission"' in main
+    assert 'text: "Restaurer la Mission"' in main
+    assert "backend.rememberDesktopState()" in main
+    assert "backend.restoreActiveMission()" in main
+    assert '"capture-state",stateId' in impl
+    assert '"restore-state",stateId' in impl
+    assert "missionStateId" in impl
+    assert "QTimer::singleShot(1600" in impl
+    assert "if(!layout.isEmpty())applyWindowLayout(layout)" in impl
+
+
 def test_cmake_packages_new_shell_components():
     cmake = read("shell/CMakeLists.txt")
     for name in ["QBar.qml", "QSpace.qml", "QuickSettings.qml", "NotificationCenter.qml", "QSnap.qml"]:
