@@ -105,6 +105,24 @@ ApplicationWindow {
         spacing: 8 * win.uiScale
         z: 25
 
+        Rectangle {
+            visible: backend.windowBridgeStatus.length > 0
+            width: 205 * win.uiScale
+            height: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#80121925"
+            border.color: "#293447"
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - 20 * win.uiScale
+                elide: Text.ElideRight
+                text: backend.windowBridgeStatus
+                color: "#8E9AAF"
+                font.pixelSize: 11 * win.uiScale
+            }
+            MouseArea { anchors.fill: parent; onClicked: backend.refreshWindowBridge() }
+        }
+
         Repeater {
             model: [["▦","Q‑Snap"],["●","Notifications"],["⌁","Réglages"]]
             delegate: Rectangle {
@@ -198,6 +216,7 @@ ApplicationWindow {
         onLayoutChosen: function(layoutId) {
             win.activeLayout = layoutId
             win.lastCommand = "Disposition Q‑Snap · " + layoutId
+            backend.applyWindowLayout(layoutId)
         }
     }
 }
