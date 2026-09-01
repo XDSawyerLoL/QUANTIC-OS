@@ -148,7 +148,14 @@ def _action_from_row(row: dict) -> Action:
 
 def _remember(receipt: Receipt, action: Action) -> None:
     try:
-        memory = capture_receipt(receipt, tool=action.tool, arguments=_redact_arguments(action.arguments))
+        memory = capture_receipt(
+            receipt,
+            tool=action.tool,
+            arguments=_redact_arguments(action.arguments),
+            capability=action.capability,
+            reversible=action.reversible,
+            risk=action.risk,
+        )
         _emit("memory.captured", {"memory_id": memory.id, "receipt_id": receipt.id, "kind": memory.kind}, receipt.goal_id)
     except (OSError, ValueError):
         pass
