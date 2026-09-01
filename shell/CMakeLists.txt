@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(quantic-home VERSION 1.6 LANGUAGES CXX)
+project(quantic-home VERSION 1.7 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Quick Qml Svg Network)
@@ -10,10 +10,11 @@ qt_add_executable(quantic-home
     src/SystemControls.cpp src/SystemControls.h
     src/NotificationBridge.cpp src/NotificationBridge.h
     src/AuthorizationBridge.cpp src/AuthorizationBridge.h
+    src/CompanionBridge.cpp src/CompanionBridge.h
 )
 qt_add_qml_module(quantic-home
     URI Quantic.Home
-    VERSION 1.6
+    VERSION 1.7
     QML_FILES
         qml/Main.qml
         qml/components/GlassPanel.qml
@@ -28,6 +29,7 @@ qt_add_qml_module(quantic-home
         qml/components/NotificationCenter.qml
         qml/components/QSnap.qml
         qml/components/AuthorizationSheet.qml
+        qml/components/QOrb.qml
         qml/pages/HomePage.qml
         qml/pages/AppsPage.qml
         qml/pages/FilesPage.qml
