@@ -37,6 +37,10 @@ static QString windowBridgePath() {
     const QString local=QDir(QCoreApplication::applicationDirPath()).filePath("../../services/qwindow_bridge.py");
     return QDir::cleanPath(local);
 }
+static QString missionStateId(const QString &mission) {
+    static const QHash<QString,QString> ids={{"Quantic OS","mission-quantic-os"},{"Personnel","mission-personnel"},{"Création","mission-creation"}};
+    return ids.value(mission);
+}
 static const QHash<QString,QStringList> &appCandidates() {
     static const QHash<QString,QStringList> apps={
         {"browser", {"firefox","chromium","google-chrome","brave-browser"}},
@@ -107,11 +111,49 @@ bool Backend::launchApp(const QString &appId){
 void Backend::setActiveMission(const QString &mission){
     static const QStringList allowed={"Quantic OS","Personnel","Création"};if(!allowed.contains(mission))return;if(m_activeMission==mission)return;m_activeMission=mission;saveDesktopState();emit desktopChanged();
 }
-void Backend::rememberDesktopState(){saveDesktopState();m_lastLaunchStatus="Mission enregistrée";emit desktopChanged();}
+void Backend::rememberDesktopState(){
+    saveDesktopState();
+    const QString stateId=missionStateId(m_activeMission);
+    if(stateId.isEmpty()){m_lastLaunchStatus="Mission non reconnue";emit desktopChanged();return;}
+    m_lastLaunchStatus="Enregistrement de la Mission…";emit desktopChanged();
+    QProcess *p=new QProcess(this);
+    connect(p,&QProcess::finished,this,[this,p](int code,QProcess::ExitStatus){
+        QJsonParseError err;const auto doc=QJsonDocument::fromJson(p->readAllStandardOutput(),&err);
+        if(code==0&&err.error==QJsonParseError::NoError&&doc.isObject()&&doc.object().value("ok").toBool()){
+            const int windows=doc.object().value("windows").toInt();
+            m_lastLaunchStatus=QString("Mission enregistrée · %1 fenêtre(s)").arg(windows);
+        }else{
+            QString reason="snapshot indisponible";if(doc.isObject())reason=doc.object().value("error").toString(reason);
+            m_lastLaunchStatus="Mission enregistrée · géométrie exacte : "+reason;
+        }
+        emit desktopChanged();p->deleteLater();
+    });
+    p->start("/usr/bin/python3",{windowBridgePath(),"capture-state",stateId});
+}
 int Backend::restoreActiveMission(){
     const auto ids=m_missionApps.value(m_activeMission);int opened=0;for(const auto &id:ids){const auto candidates=appCandidates().value(id);for(const auto &candidate:candidates){const QString exe=QStandardPaths::findExecutable(candidate);if(exe.isEmpty())continue;if(QProcess::startDetached(exe,{}))++opened;break;}}
-    const QString layout=m_missionLayouts.value(m_activeMission);if(!layout.isEmpty())QTimer::singleShot(1400,this,[this,layout](){applyWindowLayout(layout);});
-    m_lastLaunchStatus=opened>0?QString("Mission restaurée · %1 application(s)").arg(opened):"Aucune application à restaurer";emit desktopChanged();return opened;
+    const QString stateId=missionStateId(m_activeMission);
+    const QString layout=m_missionLayouts.value(m_activeMission);
+    m_lastLaunchStatus=opened>0?QString("Restauration de la Mission · %1 application(s)…").arg(opened):"Restauration de la Mission…";emit desktopChanged();
+    QTimer::singleShot(1600,this,[this,stateId,layout](){
+        if(stateId.isEmpty()){if(!layout.isEmpty())applyWindowLayout(layout);return;}
+        QProcess *p=new QProcess(this);
+        connect(p,&QProcess::finished,this,[this,p,layout](int code,QProcess::ExitStatus){
+            QJsonParseError err;const auto doc=QJsonDocument::fromJson(p->readAllStandardOutput(),&err);
+            if(code==0&&err.error==QJsonParseError::NoError&&doc.isObject()&&doc.object().value("ok").toBool()){
+                const auto o=doc.object();const int restored=o.value("restored").toInt();const bool topologyChanged=o.value("topology_changed").toBool();
+                m_lastLaunchStatus=QString("Mission restaurée · %1 fenêtre(s)%2").arg(restored).arg(topologyChanged?" · écrans adaptés":"");
+                m_windowBridgeStatus=QString("Mission · géométrie exacte · %1 fenêtre(s)").arg(restored);emit desktopChanged();
+            }else{
+                QString reason="restauration exacte indisponible";if(doc.isObject())reason=doc.object().value("error").toString(reason);
+                m_lastLaunchStatus="Mission restaurée · repli Q-Snap : "+reason;emit desktopChanged();
+                if(!layout.isEmpty())applyWindowLayout(layout);
+            }
+            p->deleteLater();
+        });
+        p->start("/usr/bin/python3",{windowBridgePath(),"restore-state",stateId});
+    });
+    return opened;
 }
 void Backend::refreshWindowBridge(){
     QProcess p; p.start("/usr/bin/python3",{windowBridgePath(),"capability"});
