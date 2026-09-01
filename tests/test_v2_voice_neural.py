@@ -103,6 +103,19 @@ def test_chatterbox_uses_v3_and_a_stable_female_reference_when_available():
     assert "ff_siwis" in service
 
 
+def test_microphone_uses_adaptive_end_of_speech_instead_of_fixed_six_second_wait():
+    impl = read("shell/src/CompanionBridge.cpp")
+    provision = read("scripts/provision-final-ai.sh")
+    assert 'findExecutable({"arecord","pw-record"})' in impl
+    assert "pcm16MeanAbsTail" in impl
+    assert "noiseFloor" in impl
+    assert "silentTicks>=7" in impl
+    assert "heardSpeech" in impl
+    assert "ticks>=60" in impl
+    assert "6200" not in impl
+    assert "alsa-utils" in provision
+
+
 def test_shell_routes_streamed_text_to_phrase_level_speech_without_duplicate_full_answer():
     backend_cpp = read("shell/src/Backend.cpp")
     main = read("shell/qml/Main.qml")
