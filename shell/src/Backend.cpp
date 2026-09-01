@@ -75,12 +75,18 @@ void Backend::loadDesktopState(){
     QJsonParseError err; const auto doc=QJsonDocument::fromJson(f.readAll(),&err); if(err.error!=QJsonParseError::NoError||!doc.isObject()) return;
     const auto o=doc.object(); const QString mission=o.value("activeMission").toString(); if(!mission.isEmpty())m_activeMission=mission;
     const auto apps=o.value("recentApps").toArray(); for(const auto &v:apps){const QString id=v.toString();if(appCandidates().contains(id)&&!m_recentApps.contains(id))m_recentApps.append(id);if(m_recentApps.size()>=8)break;}
+    const auto missions=o.value("missions").toObject();for(auto it=missions.begin();it!=missions.end();++it){QStringList ids;for(const auto &v:it.value().toArray()){const QString id=v.toString();if(appCandidates().contains(id)&&!ids.contains(id))ids.append(id);}m_missionApps.insert(it.key(),ids);}
 }
 void Backend::saveDesktopState() const{
-    QJsonObject o; o.insert("version",1);o.insert("activeMission",m_activeMission);QJsonArray apps;for(const auto &v:m_recentApps)apps.append(v.toString());o.insert("recentApps",apps);
+    QJsonObject o; o.insert("version",2);o.insert("activeMission",m_activeMission);QJsonArray apps;for(const auto &v:m_recentApps)apps.append(v.toString());o.insert("recentApps",apps);
+    QJsonObject missions;for(auto it=m_missionApps.cbegin();it!=m_missionApps.cend();++it){QJsonArray ids;for(const auto &id:it.value())ids.append(id);missions.insert(it.key(),ids);}o.insert("missions",missions);
     QSaveFile f(desktopStatePath());if(f.open(QIODevice::WriteOnly)){f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));f.commit();}
 }
-void Backend::noteRecentApp(const QString &appId){m_recentApps.removeAll(appId);m_recentApps.prepend(appId);while(m_recentApps.size()>8)m_recentApps.removeLast();saveDesktopState();emit desktopChanged();}
+void Backend::noteRecentApp(const QString &appId){
+    m_recentApps.removeAll(appId);m_recentApps.prepend(appId);while(m_recentApps.size()>8)m_recentApps.removeLast();
+    auto ids=m_missionApps.value(m_activeMission);ids.removeAll(appId);ids.prepend(appId);while(ids.size()>6)ids.removeLast();m_missionApps.insert(m_activeMission,ids);
+    saveDesktopState();emit desktopChanged();
+}
 bool Backend::launchApp(const QString &appId){
     const auto it=appCandidates().find(appId);if(it==appCandidates().end()){m_lastLaunchStatus="Application non autorisée";emit desktopChanged();return false;}
     for(const QString &candidate:it.value()){
@@ -93,6 +99,10 @@ void Backend::setActiveMission(const QString &mission){
     static const QStringList allowed={"Quantic OS","Personnel","Création"};if(!allowed.contains(mission))return;if(m_activeMission==mission)return;m_activeMission=mission;saveDesktopState();emit desktopChanged();
 }
 void Backend::rememberDesktopState(){saveDesktopState();m_lastLaunchStatus="Mission enregistrée";emit desktopChanged();}
+int Backend::restoreActiveMission(){
+    const auto ids=m_missionApps.value(m_activeMission);int opened=0;for(const auto &id:ids){const auto candidates=appCandidates().value(id);for(const auto &candidate:candidates){const QString exe=QStandardPaths::findExecutable(candidate);if(exe.isEmpty())continue;if(QProcess::startDetached(exe,{}))++opened;break;}}
+    m_lastLaunchStatus=opened>0?QString("Mission restaurée · %1 application(s)").arg(opened):"Aucune application à restaurer";emit desktopChanged();return opened;
+}
 void Backend::optimize(){QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int,QProcess::ExitStatus){const QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();m_activityTitle="Analyse Q-Resource terminée";m_activityDetail=out.isEmpty()?"Aucune modification risquée n’a été appliquée. Les décisions restent réversibles et mesurables.":out.left(420);m_companion="J’ai analysé les ressources. Les modifications critiques restent hors de portée du modèle IA.";emit metricsChanged();emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qresource.py"});}
 void Backend::openDestination(const QString &name){if(name=="Fichiers")launchApp("files");else if(name=="Apps"||name=="AppsNative")launchApp("discover");else if(name=="Paramètres")launchApp("settings");else if(name=="Terminal")launchApp("terminal");else if(name=="Bridge")QProcess::startDetached("konsole",{"-e","python3","/usr/lib/quantic/services/qbridge.py","--help"});else if(name=="Lab")runLab("chsh");}
 void Backend::askCompanion(const QString &prompt){if(prompt.trimmed().isEmpty()||m_companionBusy)return;m_companionBusy=true;m_companion="Je réfléchis localement…";emit companionChanged();QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int code,QProcess::ExitStatus){QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();if(out.isEmpty())out=QString::fromUtf8(p->readAllStandardError()).trimmed();if(code!=0&&out.isEmpty())out="Le moteur IA local n’est pas encore configuré. Installe un modèle depuis Q-Model Hub.";m_companion=out.left(4000);m_companionBusy=false;emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qagent.py",prompt});}
