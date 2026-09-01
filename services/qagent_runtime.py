@@ -18,6 +18,8 @@ try:
     from .qcontracts import Action, Goal, Plan, Receipt, to_dict
     from .qeventbus import EventBus
     from .qautonomy import save_goal, save_plan, load_goal, load_plan, update_goal, update_plan, resumable_goals
+    from .qmemory_capture import capture_receipt
+    from .qcontext import context_for_goal
 except ImportError:
     from qpolicy import decide, audit
     from qsimulation import evaluate, persist
@@ -29,9 +31,12 @@ except ImportError:
     from qcontracts import Action, Goal, Plan, Receipt, to_dict
     from qeventbus import EventBus
     from qautonomy import save_goal, save_plan, load_goal, load_plan, update_goal, update_plan, resumable_goals
+    from qmemory_capture import capture_receipt
+    from qcontext import context_for_goal
 
 RUNTIME_AUDIT = Path("/var/lib/quantic/audit/runtime.jsonl")
 BUS = EventBus()
+_SECRET_KEYS = {"password", "passwd", "secret", "token", "api_key", "apikey", "authorization", "cookie"}
 
 
 def _runtime_log(row: dict) -> None:
@@ -48,6 +53,14 @@ def _emit(topic: str, payload: dict, correlation_id: str | None = None) -> None:
         BUS.emit(topic, payload, "qagent_runtime", correlation_id)
     except OSError:
         pass
+
+
+def _redact_arguments(value):
+    if isinstance(value, dict):
+        return {k: ("<redacted>" if str(k).lower() in _SECRET_KEYS else _redact_arguments(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_arguments(x) for x in value]
+    return value
 
 
 def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_level: str = "SANDBOX") -> dict:
@@ -113,18 +126,32 @@ def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_le
 
 
 def register_goal_plan(goal: Goal, plan: Plan) -> dict:
-    """Persist a goal/plan pair and publish the durable lifecycle events."""
+    """Persist a goal/plan pair and publish lifecycle + bounded memory context."""
     if plan.goal_id != goal.id:
         raise ValueError("plan.goal_id must match goal.id")
     save_goal(goal, active_plan_id=plan.id)
     save_plan(plan)
     _emit("goal.created", to_dict(goal), goal.id)
-    _emit("plan.created", to_dict(plan), goal.id)
-    return {"goal_id": goal.id, "plan_id": plan.id, "actions": len(plan.actions)}
+    memory_context = {"goal_id": goal.id, "memories": []}
+    try:
+        memory_context = context_for_goal(goal)
+        _emit("memory.context.prepared", memory_context, goal.id)
+    except (OSError, ValueError):
+        pass
+    _emit("plan.created", {**to_dict(plan), "memory_context": memory_context}, goal.id)
+    return {"goal_id": goal.id, "plan_id": plan.id, "actions": len(plan.actions), "memory_context": memory_context}
 
 
 def _action_from_row(row: dict) -> Action:
     return Action(**row)
+
+
+def _remember(receipt: Receipt, action: Action) -> None:
+    try:
+        memory = capture_receipt(receipt, tool=action.tool, arguments=_redact_arguments(action.arguments))
+        _emit("memory.captured", {"memory_id": memory.id, "receipt_id": receipt.id, "kind": memory.kind}, receipt.goal_id)
+    except (OSError, ValueError):
+        pass
 
 
 def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str = "SANDBOX", max_actions: int | None = None) -> dict:
@@ -166,6 +193,7 @@ def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str 
             error=out.get("error"),
         )
         _emit("receipt.created", to_dict(receipt), goal_id)
+        _remember(receipt, action)
 
         if out.get("stage") == "approval":
             update_plan(plan_id, state="waiting_approval", next_action=index, last_receipt_id=receipt.id)
