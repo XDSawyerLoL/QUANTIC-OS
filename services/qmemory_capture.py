@@ -24,11 +24,13 @@ def _confidence(receipt: Receipt) -> float:
 
 
 def capture_receipt(receipt: Receipt, *, tool: str, arguments: dict[str, Any], namespace: str | None = None,
+                    capability: str = "unknown", reversible: bool = False, risk: str = "low",
                     store: MemoryStore | None = None) -> MemoryRecord:
     """Persist a compact episodic execution memory from a receipt.
 
-    Raw secrets are deliberately not copied beyond the provided action arguments;
-    callers should pass already-redacted arguments for secret-bearing tools.
+    Action security metadata is retained so Q-Learning cannot accidentally
+    promote a learned procedure without knowing the capability/risk observed at
+    execution time. Raw secrets must still be redacted by the caller.
     """
     own_store = store is None
     store = store or MemoryStore()
@@ -42,6 +44,9 @@ def capture_receipt(receipt: Receipt, *, tool: str, arguments: dict[str, Any], n
             "key": f"execution:{tool}",
             "tool": tool,
             "arguments": arguments,
+            "capability": capability,
+            "reversible": bool(reversible),
+            "risk": risk,
             "outcome": "success" if receipt.ok else "failure",
             "stage": receipt.stage,
             "verification": verification,
