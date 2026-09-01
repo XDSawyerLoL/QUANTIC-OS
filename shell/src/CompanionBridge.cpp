@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+#include <QTimer>
 
 CompanionBridge::CompanionBridge(QObject *parent): QObject(parent) { refresh(); }
 
