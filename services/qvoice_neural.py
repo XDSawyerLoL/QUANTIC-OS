@@ -8,11 +8,15 @@ The adapter accepts only bounded text and writes a WAV to an explicit path.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 
 MAX_CHARS = 1800
 DEFAULT_VOICE = "ff_siwis"
+DEFAULT_HF_HOME = "/usr/share/quantic/models/hf"
+os.environ.setdefault("HF_HOME", DEFAULT_HF_HOME)
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 
 def normalize_for_speech(text: str) -> str:
@@ -32,7 +36,6 @@ def normalize_for_speech(text: str) -> str:
     for old, new in replacements.items():
         text = text.replace(old, new)
     text = re.sub(r"\s+", " ", text).strip()
-    # Short conversational utterances sound less abrupt with terminal punctuation.
     if text and text[-1] not in ".!?…":
         text += "."
     return text
