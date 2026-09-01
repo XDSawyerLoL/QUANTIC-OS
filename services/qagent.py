@@ -22,12 +22,18 @@ try:
 except ImportError:
     from qcompanion import CompanionMemory
 
-SYSTEM = """You are Q-Agent, the local companion and system agent for Quantic OS.
-Be concise. Explain system actions before they are performed.
-Never claim an action was executed unless the operating-system tool layer confirms it.
-Prefer local/private processing. Never request an API key when a local model is available.
-Take useful initiative when context and permissions justify it, but avoid repetitive or intrusive prompts.
-Use persistent memory only through the trusted companion memory layer.
+SYSTEM = """Tu es Q-Agent, le compagnon local et l'agent système de Quantic OS.
+Réponds en français par défaut, sauf si l'utilisateur demande explicitement une autre langue.
+Ta façon de parler doit être naturelle, fluide, calme et directe, comme un véritable assistant personnel.
+Privilégie des phrases courtes à moyennes, avec un rythme oral naturel. Évite le jargon inutile, les listes mécaniques et les répétitions.
+N'utilise pas d'emoji, de kaomoji ni de décoration typographique dans une réponse destinée à la conversation.
+Évite de lire du code, des URL ou des blocs techniques à voix haute : résume-les naturellement sauf si l'utilisateur les demande.
+Sois concis, mais pas télégraphique. Une réponse ordinaire tient généralement en deux à cinq phrases.
+Explique les actions système avant qu'elles ne soient effectuées.
+Ne prétends jamais qu'une action a été exécutée tant que la couche d'outils du système d'exploitation ne l'a pas confirmé.
+Privilégie le traitement local et privé. Ne demande jamais de clé API lorsqu'un modèle local est disponible.
+Prends une initiative utile lorsque le contexte et les permissions le justifient, sans devenir répétitif ni intrusif.
+Utilise la mémoire persistante uniquement par la couche de mémoire locale de confiance du compagnon.
 """
 
 
@@ -46,7 +52,7 @@ def companion_context(memory_path: str | None = None) -> str:
 
 def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> str:
     memory = companion_context(memory_path)
-    system = SYSTEM + ("\nLocal companion context (trusted local memory): " + memory if memory else "")
+    system = SYSTEM + ("\nContexte local du compagnon, issu de la mémoire locale de confiance : " + memory if memory else "")
     payload = json.dumps({
         "model": model,
         "messages": [
@@ -65,16 +71,16 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> s
         with urllib.request.urlopen(req, timeout=120) as response:
             data = json.load(response)
     except urllib.error.URLError as exc:
-        raise SystemExit(f"Cannot reach local Ollama at {host}: {exc}") from exc
+        raise SystemExit(f"Impossible de joindre Ollama local sur {host} : {exc}") from exc
     return data.get("message", {}).get("content", "")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Quantic OS local Q-Agent")
-    parser.add_argument("--model", default="auto", help="Ollama model or 'auto'")
+    parser = argparse.ArgumentParser(description="Compagnon local Q-Agent de Quantic OS")
+    parser.add_argument("--model", default="auto", help="modèle Ollama ou 'auto'")
     parser.add_argument("--role", default="chat", choices=["chat", "tools", "coding", "vision", "reasoning"])
     parser.add_argument("--host", default="http://127.0.0.1:11434")
-    parser.add_argument("--memory", default=None, help="local companion memory database")
+    parser.add_argument("--memory", default=None, help="base de mémoire locale du compagnon")
     parser.add_argument("prompt", nargs="*")
     args = parser.parse_args()
 
@@ -83,15 +89,15 @@ def main() -> None:
         model = choose_model(args.role)
         if not model:
             raise SystemExit(
-                "No suitable local model is installed. Run scripts/setup-local-ai.sh "
-                "to install the default keyless model stack."
+                "Aucun modèle local adapté n'est installé. Lance scripts/setup-local-ai.sh "
+                "pour installer la pile locale sans clé par défaut."
             )
 
     if args.prompt:
         print(ask(model, " ".join(args.prompt), args.host, args.memory))
         return
 
-    print(f"Q-Agent — local model={model}. Type /quit to exit.")
+    print(f"Q-Agent — modèle local={model}. Tape /quit pour quitter.")
     while True:
         try:
             line = input("quantic> ").strip()
