@@ -31,6 +31,12 @@ static QString desktopStatePath() {
     QDir().mkpath(base);
     return QDir(base).filePath("desktop-state.json");
 }
+static QString windowBridgePath() {
+    const QString installed="/usr/lib/quantic/services/qwindow_bridge.py";
+    if(QFile::exists(installed)) return installed;
+    const QString local=QDir(QCoreApplication::applicationDirPath()).filePath("../../services/qwindow_bridge.py");
+    return QDir::cleanPath(local);
+}
 static const QHash<QString,QStringList> &appCandidates() {
     static const QHash<QString,QStringList> apps={
         {"browser", {"firefox","chromium","google-chrome","brave-browser"}},
@@ -46,6 +52,7 @@ Backend::Backend(QObject *parent): QObject(parent) {
     QFile cmd("/proc/cmdline");
     if (cmd.open(QIODevice::ReadOnly)) { const auto text=QString::fromUtf8(cmd.readAll()); m_safeMode=text.contains("rd.live.image") || text.contains("quantic.live=1"); }
     loadDesktopState();
+    refreshWindowBridge();
     connect(&m_timer,&QTimer::timeout,this,&Backend::refresh); m_timer.start(1000); refresh();
 }
 void Backend::appendHistory(QVariantList &list, double value, int maxPoints) { list.append(value); while (list.size()>maxPoints) list.removeFirst(); }
@@ -102,6 +109,16 @@ void Backend::rememberDesktopState(){saveDesktopState();m_lastLaunchStatus="Miss
 int Backend::restoreActiveMission(){
     const auto ids=m_missionApps.value(m_activeMission);int opened=0;for(const auto &id:ids){const auto candidates=appCandidates().value(id);for(const auto &candidate:candidates){const QString exe=QStandardPaths::findExecutable(candidate);if(exe.isEmpty())continue;if(QProcess::startDetached(exe,{}))++opened;break;}}
     m_lastLaunchStatus=opened>0?QString("Mission restaurée · %1 application(s)").arg(opened):"Aucune application à restaurer";emit desktopChanged();return opened;
+}
+void Backend::refreshWindowBridge(){
+    QProcess p; p.start("/usr/bin/python3",{windowBridgePath(),"capability"});
+    if(!p.waitForStarted(120)||!p.waitForFinished(1200)){m_windowBridgeStatus="Fenêtres : bridge indisponible";emit desktopChanged();return;}
+    QJsonParseError err;const auto doc=QJsonDocument::fromJson(p.readAllStandardOutput(),&err);if(err.error!=QJsonParseError::NoError||!doc.isObject()){m_windowBridgeStatus="Fenêtres : état inconnu";emit desktopChanged();return;}
+    const auto o=doc.object();const bool move=o.value("can_move_resize").toBool();const QString session=o.value("session").toString();m_windowBridgeStatus=move?("Fenêtres : contrôle actif · "+session):("Fenêtres : observation seule · "+session);emit desktopChanged();
+}
+void Backend::applyWindowLayout(const QString &layoutId){
+    static const QStringList allowed={"focus","half","wide","triple"};if(!allowed.contains(layoutId)){m_windowBridgeStatus="Q-Snap : disposition refusée";emit desktopChanged();return;}
+    QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p,layoutId](int code,QProcess::ExitStatus){QJsonParseError err;const auto doc=QJsonDocument::fromJson(p->readAllStandardOutput(),&err);if(code==0&&err.error==QJsonParseError::NoError&&doc.isObject()&&doc.object().value("ok").toBool()){const int count=doc.object().value("applied").toArray().size();m_windowBridgeStatus=QString("Q-Snap · %1 · %2 fenêtre(s)").arg(layoutId).arg(count);}else{QString reason="non disponible";if(doc.isObject())reason=doc.object().value("error").toString(reason);m_windowBridgeStatus="Q-Snap : "+reason;}emit desktopChanged();p->deleteLater();});p->start("/usr/bin/python3",{windowBridgePath(),"apply",layoutId});
 }
 void Backend::optimize(){QProcess *p=new QProcess(this);connect(p,&QProcess::finished,this,[this,p](int,QProcess::ExitStatus){const QString out=QString::fromUtf8(p->readAllStandardOutput()).trimmed();m_activityTitle="Analyse Q-Resource terminée";m_activityDetail=out.isEmpty()?"Aucune modification risquée n’a été appliquée. Les décisions restent réversibles et mesurables.":out.left(420);m_companion="J’ai analysé les ressources. Les modifications critiques restent hors de portée du modèle IA.";emit metricsChanged();emit companionChanged();p->deleteLater();});p->start("/usr/bin/python3",{"/usr/lib/quantic/services/qresource.py"});}
 void Backend::openDestination(const QString &name){if(name=="Fichiers")launchApp("files");else if(name=="Apps"||name=="AppsNative")launchApp("discover");else if(name=="Paramètres")launchApp("settings");else if(name=="Terminal")launchApp("terminal");else if(name=="Bridge")QProcess::startDetached("konsole",{"-e","python3","/usr/lib/quantic/services/qbridge.py","--help"});else if(name=="Lab")runLab("chsh");}
