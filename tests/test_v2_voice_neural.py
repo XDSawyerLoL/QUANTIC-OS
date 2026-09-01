@@ -93,14 +93,24 @@ def test_neural_model_is_kept_warm_between_streamed_phrases():
     assert "m_voicePendingId" in impl
 
 
-def test_chatterbox_uses_v3_and_a_stable_female_reference_when_available():
+def test_chatterbox_uses_v3_and_never_falls_to_an_uncontrolled_default_voice():
     service = read("services/qvoice_neural.py")
     assert 't3_model="v3"' in service
     assert "DEFAULT_REFERENCE" in service
     assert "QUANTIC_VOICE_REFERENCE" in service
     assert "_ensure_female_reference" in service
-    assert 'kwargs["audio_prompt_path"]' in service
+    assert '"audio_prompt_path": str(reference)' in service
+    assert "female-reference-required" in service
     assert "ff_siwis" in service
+
+
+def test_voice_preserves_llm_gpu_headroom_and_falls_back_to_small_engine():
+    service = read("services/qvoice_neural.py")
+    assert "MIN_CHATTERBOX_FREE_VRAM_GB" in service
+    assert "cuda_free_gb" in service
+    assert "torch.cuda.mem_get_info()" in service
+    assert "chatterbox_has_headroom" in service
+    assert 'return "kokoro"' in service
 
 
 def test_microphone_uses_adaptive_end_of_speech_instead_of_fixed_six_second_wait():
@@ -114,6 +124,18 @@ def test_microphone_uses_adaptive_end_of_speech_instead_of_fixed_six_second_wait
     assert "ticks>=60" in impl
     assert "6200" not in impl
     assert "alsa-utils" in provision
+
+
+def test_tts_prefetches_next_phrases_while_current_audio_is_playing():
+    header = read("shell/src/CompanionBridge.h")
+    impl = read("shell/src/CompanionBridge.cpp")
+    assert "m_readyAudioQueue" in header
+    assert "m_player" in header
+    assert "m_audioPlaying" in header
+    assert "playNextReadyAudio" in impl
+    assert "m_readyAudioQueue.size()<4" in impl
+    assert "m_voicePendingId>0" in impl
+    assert "m_player=play" in impl
 
 
 def test_shell_routes_streamed_text_to_phrase_level_speech_without_duplicate_full_answer():
