@@ -1,6 +1,7 @@
 #include "CompanionBridge.h"
 #include <QDir>
 #include <QFile>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QTimer>
@@ -30,18 +31,51 @@ QString CompanionBridge::findWhisperModel() const {
     return {};
 }
 void CompanionBridge::setState(const QString &state){ if(m_state==state)return; m_state=state; emit changed(); }
+void CompanionBridge::setAutoSpeak(bool enabled){ if(m_autoSpeak==enabled)return; m_autoSpeak=enabled; emit changed(); }
+
+QString CompanionBridge::naturalSpeechText(const QString &text) const {
+    QString out=text;
+    out.remove(QRegularExpression("```[\\s\\S]*?```"));
+    out.replace(QRegularExpression("`([^`]+)`"), "\\1");
+    out.replace(QRegularExpression("\\[([^\\]]+)\\]\\([^\\)]+\\)"), "\\1");
+    out.replace(QRegularExpression("https?://\\S+"), "ce lien");
+    out.replace(QRegularExpression("[\\x{1F000}-\\x{1FAFF}\\x{2600}-\\x{27BF}]"), "");
+    out.replace(QRegularExpression("(?m)^\\s*[-*•]+\\s*"), "");
+    out.replace(QRegularExpression("(?m)^\\s*#{1,6}\\s*"), "");
+    out.replace(QRegularExpression("[*_~>]"), "");
+    out.replace(QRegularExpression("\\bIA\\b"), "intelligence artificielle");
+    out.replace(QRegularExpression("\\bOS\\b"), "système");
+    out.replace(QRegularExpression("\\bCPU\\b"), "processeur");
+    out.replace(QRegularExpression("\\bGPU\\b"), "carte graphique");
+    out.replace(QRegularExpression("\\bRAM\\b"), "mémoire vive");
+    out.replace(QRegularExpression("\\bAPI\\b"), "A P I");
+    out.replace(QRegularExpression("\\bURL\\b"), "adresse web");
+    out.replace('\n', ". ");
+    out.replace(QRegularExpression("\\s+"), " ");
+    out.replace(QRegularExpression("([.!?])\\1+"), "\\1");
+    out=out.trimmed();
+    if(out.size()>900){
+        out=out.left(900);
+        const int lastStop=qMax(out.lastIndexOf('.'), qMax(out.lastIndexOf('!'), out.lastIndexOf('?')));
+        if(lastStop>420) out=out.left(lastStop+1);
+        else { const int space=out.lastIndexOf(' '); if(space>0) out=out.left(space)+"."; }
+    }
+    return out;
+}
+QString CompanionBridge::speechPreview(const QString &text) const { return naturalSpeechText(text); }
+
 void CompanionBridge::refresh(){
     const bool piper=!findExecutable({"piper","piper-tts"}).isEmpty();
     const bool voice=!findVoiceModel().isEmpty();
     const bool whisper=!findExecutable({"whisper-cli","whisper-cpp","main"}).isEmpty();
     const bool sttModel=!findWhisperModel().isEmpty();
-    if(piper&&voice&&whisper&&sttModel) m_voiceStatus="Voix locale : prête";
-    else if(piper&&voice) m_voiceStatus="Voix locale : sortie prête · écoute indisponible";
+    if(piper&&voice&&whisper&&sttModel) m_voiceStatus="Voix française locale : prête";
+    else if(piper&&voice) m_voiceStatus="Voix française locale : sortie prête · écoute indisponible";
     else m_voiceStatus="Voix locale : composants à installer";
     emit changed();
 }
 bool CompanionBridge::speak(const QString &text){
-    const QString clean=text.trimmed().left(1600);
+    const QString clean=naturalSpeechText(text);
     if(clean.isEmpty()||m_speaking)return false;
     const QString piper=findExecutable({"piper","piper-tts"}); const QString model=findVoiceModel();
     const QString player=findExecutable({"pw-play","aplay"});
@@ -56,7 +90,7 @@ bool CompanionBridge::speak(const QString &text){
         connect(play,&QProcess::finished,this,[this,play,wav,wavPath](int,QProcess::ExitStatus){ play->deleteLater(); QFile::remove(wavPath); wav->deleteLater(); m_speaking=false; m_speech=nullptr; setState("prêt"); emit changed(); });
         play->start(player,{wavPath});
     });
-    synth->start(piper,{"--model",model,"--output_file",wavPath});
+    synth->start(piper,{"--model",model,"--output_file",wavPath,"--length_scale","0.94","--noise_scale","0.62","--noise_w","0.82","--sentence_silence","0.16"});
     if(!synth->waitForStarted(180)){ synth->deleteLater(); QFile::remove(wavPath); wav->deleteLater(); m_speaking=false; m_speech=nullptr; setState("prêt"); emit changed(); return false; }
     synth->write(clean.toUtf8()); synth->write("\n"); synth->closeWriteChannel();
     return true;
@@ -69,6 +103,7 @@ bool CompanionBridge::listenOnce(){
     if(recorder.isEmpty()||whisper.isEmpty()||model.isEmpty()){refresh();return false;}
     QTemporaryFile *wav=new QTemporaryFile(QDir::tempPath()+"/quantic-listen-XXXXXX.wav",this); wav->setAutoRemove(false);
     if(!wav->open()){wav->deleteLater();return false;} const QString wavPath=wav->fileName(); wav->close();
+    if(m_speaking) stopSpeaking();
     QProcess *rec=new QProcess(this); m_listener=rec; m_listening=true; setState("écoute"); emit changed();
     QStringList args;
     if(recorder.endsWith("pw-record")) args={"--rate","16000","--channels","1",wavPath}; else args={"-f","S16_LE","-r","16000","-c","1","-d","6",wavPath};
@@ -76,7 +111,7 @@ bool CompanionBridge::listenOnce(){
     if(!rec->waitForStarted(200)){rec->deleteLater();QFile::remove(wavPath);wav->deleteLater();m_listening=false;setState("prêt");emit changed();return false;}
     QTimer::singleShot(6200,this,[this,rec,wav,wavPath,whisper,model](){
         if(rec->state()!=QProcess::NotRunning) rec->terminate(); rec->waitForFinished(500); rec->deleteLater();
-        QProcess *stt=new QProcess(this); m_listener=stt;
+        QProcess *stt=new QProcess(this); m_listener=stt; setState("comprend"); emit changed();
         connect(stt,&QProcess::finished,this,[this,stt,wav,wavPath](int code,QProcess::ExitStatus){
             QString out=QString::fromUtf8(stt->readAllStandardOutput()); if(out.isEmpty()) out=QString::fromUtf8(stt->readAllStandardError());
             stt->deleteLater(); QFile::remove(wavPath); wav->deleteLater();
