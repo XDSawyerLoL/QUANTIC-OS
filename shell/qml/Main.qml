@@ -12,7 +12,7 @@ ApplicationWindow {
     title: "Quantic OS"
 
     property string currentPage: "Accueil"
-    property string activeMission: "Quantic OS"
+    property string activeMission: backend.activeMission
     property string companionState: "prêt"
     property string lastCommand: ""
     property string activeLayout: "focus"
@@ -69,9 +69,11 @@ ApplicationWindow {
             Menu {
                 id: missionMenu
                 y: parent.height + 6
-                MenuItem { text: "Quantic OS"; onTriggered: win.activeMission = text }
-                MenuItem { text: "Personnel"; onTriggered: win.activeMission = text }
-                MenuItem { text: "Création"; onTriggered: win.activeMission = text }
+                MenuItem { text: "Quantic OS"; onTriggered: backend.setActiveMission(text) }
+                MenuItem { text: "Personnel"; onTriggered: backend.setActiveMission(text) }
+                MenuItem { text: "Création"; onTriggered: backend.setActiveMission(text) }
+                MenuSeparator { }
+                MenuItem { text: "Enregistrer l’état"; onTriggered: backend.rememberDesktopState() }
             }
         }
 
