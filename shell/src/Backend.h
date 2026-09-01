@@ -33,6 +33,7 @@ class Backend final : public QObject {
     Q_PROPERTY(QString activeMission READ activeMission NOTIFY desktopChanged)
     Q_PROPERTY(QVariantList recentApps READ recentApps NOTIFY desktopChanged)
     Q_PROPERTY(QString lastLaunchStatus READ lastLaunchStatus NOTIFY desktopChanged)
+    Q_PROPERTY(QString windowBridgeStatus READ windowBridgeStatus NOTIFY desktopChanged)
 public:
     explicit Backend(QObject *parent=nullptr);
     double cpu() const { return m_cpu; }
@@ -60,6 +61,7 @@ public:
     QString activeMission() const { return m_activeMission; }
     QVariantList recentApps() const { return m_recentApps; }
     QString lastLaunchStatus() const { return m_lastLaunchStatus; }
+    QString windowBridgeStatus() const { return m_windowBridgeStatus; }
     Q_INVOKABLE void optimize();
     Q_INVOKABLE void openDestination(const QString &name);
     Q_INVOKABLE void askCompanion(const QString &prompt);
@@ -68,6 +70,8 @@ public:
     Q_INVOKABLE void setActiveMission(const QString &mission);
     Q_INVOKABLE void rememberDesktopState();
     Q_INVOKABLE int restoreActiveMission();
+    Q_INVOKABLE void applyWindowLayout(const QString &layoutId);
+    Q_INVOKABLE void refreshWindowBridge();
 signals:
     void metricsChanged();
     void companionChanged();
@@ -102,6 +106,7 @@ private:
     QVariantList m_recentApps;
     QHash<QString,QStringList> m_missionApps;
     QString m_lastLaunchStatus="Prêt";
+    QString m_windowBridgeStatus="Fenêtres : détection en attente";
     quint64 m_prevTotal=0, m_prevIdle=0;
     QTimer m_timer;
 };
