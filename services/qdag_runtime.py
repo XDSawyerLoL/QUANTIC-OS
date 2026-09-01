@@ -35,10 +35,10 @@ def _digest(value: Any) -> str:
 
 
 def validate_dag(nodes: Iterable[DagNode]) -> dict[str, DagNode]:
-    by_id={n.id:n for n in nodes}
-    if len(by_id)==0: raise ValueError("empty_dag")
-    if len(by_id)!=len(list(nodes)) if not isinstance(nodes,list) else False:
-        raise ValueError("duplicate_node_id")
+    rows=list(nodes)
+    by_id={n.id:n for n in rows}
+    if not rows: raise ValueError("empty_dag")
+    if len(by_id)!=len(rows): raise ValueError("duplicate_node_id")
     for n in by_id.values():
         unknown=[d for d in n.depends_on if d not in by_id]
         if unknown: raise ValueError(f"unknown_dependency:{n.id}:{','.join(unknown)}")
@@ -73,6 +73,8 @@ def _node_context(node:DagNode,state:DagState)->dict[str,Any]:
 
 def affected_frontier(nodes:dict[str,DagNode],state:DagState,changed_nodes:Iterable[str])->set[str]:
     changed=set(changed_nodes)
+    unknown=changed-set(nodes)
+    if unknown: raise ValueError(f"unknown_changed_nodes:{','.join(sorted(unknown))}")
     return changed | descendants(nodes,changed)
 
 
@@ -97,9 +99,7 @@ def execute_dag(nodes:list[DagNode], *, worker:NodeWorker, parent_capabilities:I
     while True:
         pending=[n for n in nodes if state.status.get(n.id,"pending") in {"pending","failed"}]
         if not pending: break
-        ready=[]
-        for n in pending:
-            if all(state.status.get(d)=="done" for d in n.depends_on): ready.append(n)
+        ready=[n for n in pending if all(state.status.get(d)=="done" for d in n.depends_on)]
         if not ready:
             failed=[nid for nid,s in state.status.items() if s=="failed"]
             if failed: return {"ok":False,"stage":"blocked","failed":failed,"state":asdict(state)}
@@ -110,7 +110,6 @@ def execute_dag(nodes:list[DagNode], *, worker:NodeWorker, parent_capabilities:I
             for n in ready:
                 ctx=_node_context(n,state)
                 input_digest=ctx["dependency_digest"]
-                if state.status.get(n.id)=="done" and state.input_digests.get(n.id)==input_digest: continue
                 futures[pool.submit(worker,asdict(n),ctx)]=(n,input_digest)
             for fut in as_completed(futures):
                 n,input_digest=futures[fut]
