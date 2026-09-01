@@ -19,7 +19,7 @@ Item {
     Text {
         x: 54 * root.unit
         y: 94 * root.unit
-        text: "Local par défaut. Écoute uniquement à la demande. Actions système soumises aux permissions Quantic."
+        text: "Local par défaut. Français naturel. Écoute uniquement à la demande. Actions système soumises aux permissions Quantic."
         color: "#9EAAC0"
         font.pixelSize: 14 * root.unit
     }
@@ -48,7 +48,16 @@ Item {
                     Layout.fillWidth: true
                     Text { text: backend.localAiStatus; color: "#D8E0ED"; font.pixelSize: 14 * root.unit }
                     Text { text: companionBridge.voiceStatus; color: "#8F9CB1"; font.pixelSize: 12 * root.unit }
-                    Text { text: companionBridge.listening ? "Je t’écoute…" : companionBridge.speaking ? "Je réponds…" : "Prêt"; color: "#9C92FF"; font.pixelSize: 12 * root.unit }
+                    Text {
+                        text: companionBridge.listening ? "Je t’écoute…" : companionBridge.state === "comprend" ? "Je comprends…" : companionBridge.speaking ? "Je te réponds…" : "Prêt"
+                        color: "#9C92FF"
+                        font.pixelSize: 12 * root.unit
+                    }
+                }
+                Switch {
+                    text: "Réponses vocales"
+                    checked: companionBridge.autoSpeak
+                    onToggled: companionBridge.setAutoSpeak(checked)
                 }
                 Button {
                     text: companionBridge.listening ? "Écoute…" : "Micro"
