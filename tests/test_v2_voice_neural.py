@@ -93,6 +93,16 @@ def test_neural_model_is_kept_warm_between_streamed_phrases():
     assert "m_voicePendingId" in impl
 
 
+def test_chatterbox_uses_v3_and_a_stable_female_reference_when_available():
+    service = read("services/qvoice_neural.py")
+    assert 't3_model="v3"' in service
+    assert "DEFAULT_REFERENCE" in service
+    assert "QUANTIC_VOICE_REFERENCE" in service
+    assert "_ensure_female_reference" in service
+    assert 'kwargs["audio_prompt_path"]' in service
+    assert "ff_siwis" in service
+
+
 def test_shell_routes_streamed_text_to_phrase_level_speech_without_duplicate_full_answer():
     backend_cpp = read("shell/src/Backend.cpp")
     main = read("shell/qml/Main.qml")
