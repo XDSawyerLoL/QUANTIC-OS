@@ -23,6 +23,18 @@ ApplicationWindow {
     Shortcut { sequence: "Meta+N"; onActivated: notifications.open() }
     Shortcut { sequence: "Meta+S"; onActivated: qsnap.open() }
 
+    Connections {
+        target: authorizationBridge
+        function onChanged() {
+            if (authorizationBridge.pending && !authorizationSheet.opened) {
+                authorizationSheet.open()
+                win.lastCommand = "Autorisation requise · " + (authorizationBridge.request.tool || "action système")
+            }
+            if (!authorizationBridge.pending && authorizationSheet.opened && !authorizationBridge.busy)
+                authorizationSheet.close()
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
@@ -116,6 +128,17 @@ ApplicationWindow {
         anchors.topMargin: 22 * win.uiScale
         spacing: 8 * win.uiScale
         z: 25
+
+        Rectangle {
+            visible: authorizationBridge.pending
+            width: 44 * win.uiScale
+            height: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#36264D"
+            border.color: "#7A64B4"
+            Text { anchors.centerIn: parent; text: "!"; color: "#D6C5FF"; font.pixelSize: 15 * win.uiScale; font.bold: true }
+            MouseArea { anchors.fill: parent; onClicked: authorizationSheet.open() }
+        }
 
         Rectangle {
             visible: backend.windowBridgeStatus.length > 0
@@ -230,5 +253,13 @@ ApplicationWindow {
             win.lastCommand = "Disposition Q‑Snap · " + layoutId
             backend.applyWindowLayout(layoutId)
         }
+    }
+
+    AuthorizationSheet {
+        id: authorizationSheet
+        uiScale: win.uiScale
+        x: Math.round((win.width - width) / 2)
+        y: Math.round((win.height - height) / 2)
+        z: 300
     }
 }
