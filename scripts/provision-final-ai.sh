@@ -33,18 +33,21 @@ sudo chroot "$ROOT_TREE" /usr/bin/dnf -y --setopt=retries=5 --setopt=timeout=30 
   ollama whisper-cpp espeak-ng alsa-utils pipewire-utils libsndfile python3-psutil python3-pip bubblewrap
 sudo chroot "$ROOT_TREE" /usr/bin/dnf clean all
 
-echo '[AI] Installing adaptive premium neural voice stack'
-# Kokoro is the low-latency path and works well on CPU. Chatterbox is an optional
-# quality-first tier selected automatically when CUDA is available. Neither is a
-# hard boot dependency: Piper remains a compact offline fallback.
-sudo chroot "$ROOT_TREE" /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages \
+echo '[AI] Installing compact premium neural voice stack'
+# Kokoro is deliberately embedded as the always-available neural conversation path.
+# Chatterbox remains supported by qvoice_neural.py, but is NOT installed in the
+# immutable Live image: its PyPI dependency graph can resolve several gigabytes of
+# CUDA/Torch wheels, which bloats the ISO and can exhaust the remaster job budget.
+# On capable NVIDIA hardware it can be supplied later as an optional accelerator;
+# absence is intentional and qvoice_neural.py deterministically falls back to Kokoro.
+sudo chroot "$ROOT_TREE" /usr/bin/env PIP_DISABLE_PIP_VERSION_CHECK=1 \
+  /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages --retries 3 --timeout 60 \
   'kokoro>=0.9.4' soundfile numpy || \
-  echo '[AI] WARNING: Kokoro unavailable; quality tier or Piper fallback will be used.'
-sudo chroot "$ROOT_TREE" /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages \
-  chatterbox-tts || \
-  echo '[AI] WARNING: Chatterbox unavailable on this Python/runtime; Kokoro remains primary.'
-sudo chroot "$ROOT_TREE" /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages piper-tts || \
+  echo '[AI] WARNING: Kokoro unavailable; Piper fallback will remain usable.'
+sudo chroot "$ROOT_TREE" /usr/bin/env PIP_DISABLE_PIP_VERSION_CHECK=1 \
+  /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages --retries 3 --timeout 60 piper-tts || \
   echo '[AI] WARNING: Piper install unavailable; espeak-ng remains last-resort audio tooling.'
+sudo rm -rf "$ROOT_TREE/root/.cache/pip" "$ROOT_TREE/tmp/pip-"* 2>/dev/null || true
 
 echo '[AI] Embedding compact speech-recognition model'
 WHISPER_URL='https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin?download=true'
@@ -77,5 +80,5 @@ test -x "$ROOT_TREE/usr/bin/bwrap"
 test -s "$MODEL_DIR/ggml-base.bin"
 test -s "$MODEL_DIR/fr_FR-siwis-medium.onnx"
 
-echo '[AI] Runtime ready. Voice policy: Chatterbox on capable CUDA hardware, Kokoro for low latency, Piper as offline fallback.'
+echo '[AI] Runtime ready. Voice policy: Kokoro neural low-latency by default, Piper fallback; Chatterbox is an optional post-boot quality accelerator.'
 exit 0
