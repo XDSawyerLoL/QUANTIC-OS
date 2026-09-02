@@ -34,8 +34,18 @@ def test_shell_uses_adaptive_neural_quality_and_keeps_piper_fallback():
     assert "speakPiper(chunk)" in impl
     assert "Moteur vocal · " in page
     assert "kokoro>=0.9.4" in provision
-    assert "chatterbox-tts" in provision
+    assert "Chatterbox remains supported" in provision
+    assert "NOT installed" in provision
+    assert "pip install --no-cache-dir --break-system-packages --retries 3 --timeout 60 piper-tts" in provision
     assert "qvoice_neural.py" in provision
+
+
+def test_base_iso_does_not_eagerly_pull_chatterbox_cuda_wheels():
+    provision = read("scripts/provision-final-ai.sh")
+    executable_lines = [line.strip() for line in provision.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    assert not any("pip install" in line and "chatterbox-tts" in line for line in executable_lines)
+    assert "several gigabytes" in provision
+    assert "optional post-boot quality accelerator" in provision
 
 
 def test_voice_adapter_is_local_bounded_and_adaptive():
