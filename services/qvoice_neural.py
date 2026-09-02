@@ -2,17 +2,15 @@
 """Quantic premium local neural voice adapter.
 
 Adaptive engines:
-- Chatterbox Multilingual V3 when enough free CUDA memory remains after the LLM,
-  with a stable female French reference voice.
-- Kokoro-82M for low-latency local conversation and GPU-pressure fallback.
+- Chatterbox Multilingual V3 when explicitly installed after boot and enough free
+  CUDA memory remains after the LLM.
+- Kokoro-82M ONNX + ff_siwis is the immutable-ISO low-latency French path.
+- The original PyTorch Kokoro pipeline remains compatible when installed.
 - Piper remains the shell-level emergency fallback.
 
 The adapter never executes arbitrary commands. It accepts bounded text and writes
-one WAV to an explicit path. Model caches stay local through HF_HOME.
-
-For conversation, ``--server`` keeps the selected neural model loaded and accepts
-newline-delimited JSON synthesis requests on stdin. This removes model reload time
-between spoken phrases while preserving the one-shot CLI for diagnostics/tests.
+one WAV to an explicit path. ``--server`` keeps the selected model loaded between
+streamed phrases so speech can begin before the LLM has finished its full answer.
 """
 from __future__ import annotations
 
@@ -27,6 +25,8 @@ from typing import Any
 MAX_CHARS = 1800
 DEFAULT_VOICE = "ff_siwis"
 DEFAULT_HF_HOME = "/usr/share/quantic/models/hf"
+DEFAULT_KOKORO_MODEL = Path("/usr/share/quantic/models/kokoro/kokoro-v1.0.onnx")
+DEFAULT_KOKORO_VOICES = Path("/usr/share/quantic/models/kokoro/voices-v1.0.bin")
 DEFAULT_REFERENCE = Path.home() / ".local/share/quantic/voices/quantic-female-reference.wav"
 MIN_CHATTERBOX_FREE_VRAM_GB = 4.5
 os.environ.setdefault("HF_HOME", DEFAULT_HF_HOME)
@@ -79,7 +79,17 @@ def chatterbox_available() -> bool:
         return False
 
 
-def kokoro_available() -> bool:
+def kokoro_onnx_available() -> bool:
+    try:
+        from kokoro_onnx import Kokoro  # noqa: F401
+        from misaki.espeak import EspeakG2P  # noqa: F401
+        import soundfile  # noqa: F401
+        return DEFAULT_KOKORO_MODEL.is_file() and DEFAULT_KOKORO_VOICES.is_file()
+    except Exception:
+        return False
+
+
+def kokoro_torch_available() -> bool:
     try:
         from kokoro import KPipeline  # noqa: F401
         import soundfile  # noqa: F401
@@ -89,17 +99,19 @@ def kokoro_available() -> bool:
         return False
 
 
+def kokoro_available() -> bool:
+    return kokoro_onnx_available() or kokoro_torch_available()
+
+
 def choose_engine(requested: str = "auto") -> str:
     if requested in {"chatterbox", "kokoro"}:
         return requested
     free_vram = cuda_free_gb()
-    chatterbox_has_headroom = free_vram is None or free_vram >= MIN_CHATTERBOX_FREE_VRAM_GB
+    chatterbox_has_headroom = free_vram is not None and free_vram >= MIN_CHATTERBOX_FREE_VRAM_GB
     if cuda_capable() and chatterbox_available() and chatterbox_has_headroom:
         return "chatterbox"
     if kokoro_available():
         return "kokoro"
-    if chatterbox_available() and chatterbox_has_headroom:
-        return "chatterbox"
     return "none"
 
 
@@ -115,6 +127,8 @@ class VoiceRuntime:
         self._chatterbox_device = "cpu"
         self._chatterbox_version = "unknown"
         self._kokoro: Any = None
+        self._kokoro_g2p: Any = None
+        self._kokoro_backend = "none"
         configured_reference = os.environ.get("QUANTIC_VOICE_REFERENCE", "").strip()
         configured_path = Path(configured_reference).expanduser() if configured_reference else None
         self.reference = configured_path if configured_path and configured_path.is_file() else (DEFAULT_REFERENCE if DEFAULT_REFERENCE.is_file() else None)
@@ -136,9 +150,36 @@ class VoiceRuntime:
     def _load_kokoro(self) -> None:
         if self._kokoro is not None:
             return
+        if kokoro_onnx_available():
+            from kokoro_onnx import Kokoro
+            from misaki import espeak
+            from misaki.espeak import EspeakG2P
+
+            # Constructing the fallback ensures espeak-ng is available for French
+            # words outside Misaki's lexicon. The G2P output is passed explicitly
+            # to Kokoro ONNX, matching the upstream French example.
+            espeak.EspeakFallback(british=False)
+            self._kokoro_g2p = EspeakG2P(language="fr-fr")
+            self._kokoro = Kokoro(str(DEFAULT_KOKORO_MODEL), str(DEFAULT_KOKORO_VOICES))
+            self._kokoro_backend = "onnx"
+            return
         from kokoro import KPipeline
 
         self._kokoro = KPipeline(lang_code="f")
+        self._kokoro_backend = "torch"
+
+    def _kokoro_audio(self, text: str, voice: str, speed: float) -> tuple[Any, int]:
+        self._load_kokoro()
+        if self._kokoro_backend == "onnx":
+            phonemes, _tokens = self._kokoro_g2p(text)
+            samples, sample_rate = self._kokoro.create(phonemes, voice, speed=speed, is_phonemes=True)
+            return samples, int(sample_rate)
+        import numpy as np
+
+        chunks = [audio for _g, _p, audio in self._kokoro(text, voice=voice, speed=speed)]
+        if not chunks:
+            raise RuntimeError("no-audio")
+        return np.concatenate(chunks), 24000
 
     def _ensure_female_reference(self) -> Path | None:
         if self.reference and self.reference.is_file():
@@ -146,16 +187,12 @@ class VoiceRuntime:
         if not kokoro_available():
             return None
         try:
-            import numpy as np
             import soundfile as sf
 
-            self._load_kokoro()
             reference_text = "Bonjour. Je suis Quantic, votre assistante locale. Je parle avec une voix calme, naturelle, claire et posée, sans précipitation."
-            chunks = [audio for _g, _p, audio in self._kokoro(reference_text, voice=DEFAULT_VOICE, speed=0.98)]
-            if not chunks:
-                return None
+            samples, sample_rate = self._kokoro_audio(reference_text, DEFAULT_VOICE, 0.98)
             DEFAULT_REFERENCE.parent.mkdir(parents=True, exist_ok=True)
-            sf.write(str(DEFAULT_REFERENCE), np.concatenate(chunks), 24000)
+            sf.write(str(DEFAULT_REFERENCE), samples, sample_rate)
             self.reference = DEFAULT_REFERENCE
             return self.reference
         except Exception:
@@ -182,16 +219,17 @@ class VoiceRuntime:
             return {
                 "ok": self.selected != "none",
                 "selected": self.selected,
+                "backend": self._kokoro_backend if self.selected == "kokoro" else self._chatterbox_version,
                 "cuda": cuda_capable(),
                 "free_vram_gb": cuda_free_gb(),
                 "reference": bool(self.reference and self.reference.is_file()),
-                "model_version": self._chatterbox_version if self.selected == "chatterbox" else "n/a",
+                "model_version": self._chatterbox_version if self.selected == "chatterbox" else "kokoro-v1.0",
             }
         except Exception as exc:
             if self.requested_engine == "auto" and self.selected == "chatterbox":
                 try:
                     if self._fallback_to_kokoro():
-                        return {"ok": True, "selected": self.selected, "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "fallback": "kokoro", "reference": False, "model_version": "n/a"}
+                        return {"ok": True, "selected": self.selected, "backend": self._kokoro_backend, "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "fallback": "kokoro", "reference": False, "model_version": "kokoro-v1.0"}
                 except Exception:
                     pass
             return {"ok": False, "selected": self.selected, "error": f"{type(exc).__name__}: {exc}"[:240]}
@@ -241,16 +279,12 @@ class VoiceRuntime:
 
         if self.selected == "kokoro":
             try:
-                import numpy as np
                 import soundfile as sf
 
-                self._load_kokoro()
-                chunks = [audio for _g, _p, audio in self._kokoro(clean, voice=actual_voice, speed=actual_speed)]
-                if not chunks:
-                    return {"ok": False, "error": "no-audio"}
+                samples, sample_rate = self._kokoro_audio(clean, actual_voice, actual_speed)
                 output.parent.mkdir(parents=True, exist_ok=True)
-                sf.write(str(output), np.concatenate(chunks), 24000)
-                return {"ok": True, "engine": "kokoro-82m", "voice": actual_voice, "sample_rate": 24000, "chars": len(clean)}
+                sf.write(str(output), samples, sample_rate)
+                return {"ok": True, "engine": "kokoro-82m-onnx" if self._kokoro_backend == "onnx" else "kokoro-82m", "backend": self._kokoro_backend, "voice": actual_voice, "sample_rate": sample_rate, "chars": len(clean)}
             except Exception as exc:
                 return {"ok": False, "error": "kokoro-failed", "detail": f"{type(exc).__name__}: {exc}"[:240]}
 
@@ -309,7 +343,7 @@ def main() -> int:
     parser.add_argument("text", nargs="*")
     args = parser.parse_args()
     if args.probe:
-        result = {"ok": True, "selected": choose_engine(args.engine), "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "chatterbox": chatterbox_available(), "kokoro": kokoro_available()}
+        result = {"ok": True, "selected": choose_engine(args.engine), "cuda": cuda_capable(), "free_vram_gb": cuda_free_gb(), "chatterbox": chatterbox_available(), "kokoro": kokoro_available(), "kokoro_onnx": kokoro_onnx_available()}
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
     runtime = VoiceRuntime(engine=args.engine, voice=args.voice, speed=args.speed)
