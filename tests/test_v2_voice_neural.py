@@ -33,25 +33,28 @@ def test_shell_uses_adaptive_neural_quality_and_keeps_piper_fallback():
     assert "Kokoro 82M · français" in impl
     assert "speakPiper(chunk)" in impl
     assert "Moteur vocal · " in page
-    assert "kokoro>=0.9.4" in provision
-    assert "Chatterbox remains supported" in provision
-    assert "NOT installed" in provision
-    assert "pip install --no-cache-dir --break-system-packages --retries 3 --timeout 60 piper-tts" in provision
+    assert "kokoro-onnx==0.6.1" in provision
+    assert "Chatterbox remains an optional post-boot quality tier" in provision
+    assert "piper-tts" in provision
     assert "qvoice_neural.py" in provision
 
 
-def test_base_iso_does_not_eagerly_pull_chatterbox_cuda_wheels():
+def test_base_iso_never_eagerly_pulls_torch_or_chatterbox_cuda_wheels():
     provision = read("scripts/provision-final-ai.sh")
     executable_lines = [line.strip() for line in provision.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     assert not any("pip install" in line and "chatterbox-tts" in line for line in executable_lines)
-    assert "several gigabytes" in provision
-    assert "optional post-boot quality accelerator" in provision
+    assert not any("pip install" in line and "kokoro>=" in line for line in executable_lines)
+    assert "Kokoro-82M through ONNX Runtime" in provision
+    assert "kokoro-v1.0.onnx" in provision
+    assert "voices-v1.0.bin" in provision
 
 
 def test_voice_adapter_is_local_bounded_and_adaptive():
     service = read("services/qvoice_neural.py")
     assert "MAX_CHARS" in service
-    assert 'KPipeline(lang_code="f")' in service
+    assert "kokoro_onnx_available" in service
+    assert "from kokoro_onnx import Kokoro" in service
+    assert 'EspeakG2P(language="fr-fr")' in service
     assert 'DEFAULT_VOICE = "ff_siwis"' in service
     assert "ChatterboxMultilingualTTS" in service
     assert '"language_id": "fr"' in service
@@ -103,7 +106,7 @@ def test_neural_model_is_kept_warm_between_streamed_phrases():
     assert "m_voicePendingId" in impl
 
 
-def test_chatterbox_uses_v3_and_never_falls_to_an_uncontrolled_default_voice():
+def test_chatterbox_is_optional_and_never_falls_to_uncontrolled_default_voice():
     service = read("services/qvoice_neural.py")
     assert 't3_model="v3"' in service
     assert "DEFAULT_REFERENCE" in service
@@ -158,3 +161,13 @@ def test_shell_routes_streamed_text_to_phrase_level_speech_without_duplicate_ful
     assert "pushStreamingText(text)" in main
     assert "onCompanionStreamFinished" in main
     assert "finishStreamingSpeech()" in main
+
+
+def test_final_iso_uses_modern_push_to_talk_and_enables_memory_dreaming():
+    remaster = read("scripts/remaster-quantic-final.sh")
+    assert 'VOICE_MODE="push-to-talk-adaptive-local"' in remaster
+    assert 'LEGACY_WAKE_DAEMON="installed-disabled"' in remaster
+    assert 'timers.target.wants/quantic-dream.timer' in remaster
+    assert 'rm -f "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"' in remaster
+    assert '! sudo test -L "$ROOT_TREE/etc/systemd/user/default.target.wants/quantic-voice.service"' in remaster
+    assert 'qvoice_neural.py qdream.py qdream_runner.py' in remaster
