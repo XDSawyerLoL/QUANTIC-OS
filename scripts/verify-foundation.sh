@@ -6,7 +6,7 @@ cd "$ROOT"
 
 python3 -m py_compile services/*.py scripts/*.py
 bash -n scripts/*.sh services/*.sh
-pytest -q
+python3 -m pytest -q
 
 test -f scripts/remaster-fedora-kde.sh
 test -f .github/workflows/build-remastered-live.yml

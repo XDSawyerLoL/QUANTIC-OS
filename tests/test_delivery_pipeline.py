@@ -36,3 +36,9 @@ def test_missing_model_error_does_not_reference_nonexistent_setup_script():
     agent = (ROOT / "services/qagent.py").read_text()
     assert "setup-local-ai.sh" not in agent
     assert "QUANTIC-DATA" in agent
+
+
+def test_foundation_uses_module_test_runner_from_repository_root():
+    verifier = (ROOT / "scripts/verify-foundation.sh").read_text()
+    assert "python3 -m pytest -q" in verifier
+    assert "\npytest -q\n" not in verifier
