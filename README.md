@@ -4,6 +4,11 @@ Quantic OS is now built as a **Fedora KDE 44 Live USB product**, not a custom fr
 
 Official repository: `XDSawyerLoL/QUANTIC-OS`.
 
+The canonical delivery branch is `main`. Successful delivery builds publish a
+persistent GitHub prerelease containing sub-2-GB ISO parts, checksums and the
+Windows reassembly instructions. A green source test alone is not a hardware
+certification.
+
 ## Product stack
 - Fedora KDE 44 Live base
 - Plasma 6 + KWin + Wayland

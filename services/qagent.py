@@ -117,7 +117,7 @@ def main() -> None:
     if model == "auto":
         model = choose_model(args.role)
         if not model:
-            raise SystemExit("Aucun modèle local adapté n'est installé. Lance scripts/setup-local-ai.sh pour installer la pile locale sans clé par défaut.")
+            raise SystemExit("Aucun modèle Ollama n'est installé. Prépare le volume USB QUANTIC-DATA puis copie un modèle Ollama existant ou installe-en un depuis la session Quantic.")
 
     if args.prompt:
         prompt = " ".join(args.prompt)

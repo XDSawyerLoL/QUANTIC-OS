@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)]
-    [ValidatePattern('^[A-Za-z]:$')]
+    [ValidatePattern('^[A-Za-z]:(\\)?$')]
     [string]$Drive,
 
     [string]$OllamaBundle = ""
@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $driveLetter = $Drive.Substring(0,1).ToUpper()
+$normalizedDrive = "$driveLetter`:"
 $systemDrive = $env:SystemDrive.Substring(0,1).ToUpper()
 if ($driveLetter -eq $systemDrive) {
     throw "Refusing to use the Windows system drive. Choose the removable QUANTIC-DATA volume."
@@ -21,7 +22,7 @@ if ($vol.FileSystemLabel -ne 'QUANTIC-DATA') {
     throw "Volume label must already be QUANTIC-DATA. This script intentionally does not format or repartition disks."
 }
 
-$root = "$Drive\quantic-state"
+$root = "$normalizedDrive\quantic-state"
 $dirs = @(
     'models', 'models\ollama', 'memory', 'index', 'skills', 'connectors',
     'tasks', 'simulations', 'audit', 'vault', 'users'
@@ -46,6 +47,6 @@ if ($OllamaBundle) {
     Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
 }
 
-Write-Host "QUANTIC-DATA prepared safely on $Drive"
+Write-Host "QUANTIC-DATA prepared safely on $normalizedDrive"
 Write-Host "No disk was formatted or repartitioned."
 Write-Host "Model store: $root\models\ollama"

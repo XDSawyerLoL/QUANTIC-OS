@@ -1,13 +1,14 @@
 name: Build Quantic OS Final ISO
 
-# Build trigger marker: consolidated q-agent platform + QUANTIC-DATA
+# Canonical delivery pipeline. Main is the only automatic release branch so a
+# single source commit cannot consume two four-hour ISO builds.
 on:
   workflow_dispatch:
   push:
-    branches: [final/quantic-os-v1, feature/q-agent-platform]
+    branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: quantic-final-${{ github.ref }}
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   final-remaster:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -72,8 +73,16 @@ jobs:
       - name: Split ISO for artifact transport
         run: |
           cd build/live
-          split -b 1800M -d -a 2 Quantic-OS-Final-Live-x86_64.iso Quantic-OS-Final-Live-x86_64.iso.part-
+          split -b 1500M -d -a 2 Quantic-OS-Final-Live-x86_64.iso Quantic-OS-Final-Live-x86_64.iso.part-
           sha256sum Quantic-OS-Final-Live-x86_64.iso.part-* > Quantic-OS-Final-Live-x86_64.parts.sha256
+          cat > BUILD-MANIFEST.txt <<EOF
+          Product: Quantic OS V2 Developer Preview
+          Source commit: ${GITHUB_SHA}
+          Workflow run: ${GITHUB_RUN_ID}
+          Fedora base: Fedora-KDE-Desktop-Live-44-1.7.x86_64.iso
+          Fedora base SHA-256: c8295961d4c41adbf785a31a17c21a971d3b7415fda72dcad0c11c49577bf03a
+          Hardware certification: pending HP Omen acceptance
+          EOF
           cat > REASSEMBLE-WINDOWS.txt <<'EOF'
           Put every .part-* file in the same folder, then run in PowerShell:
           $parts = Get-ChildItem 'Quantic-OS-Final-Live-x86_64.iso.part-*' | Sort-Object Name
@@ -97,15 +106,23 @@ jobs:
             .\prepare-quantic-data.ps1 -Drive E: -OllamaBundle C:\path\to\ollama-models
           EOF
 
-      - uses: actions/upload-artifact@v4
+      - name: Publish persistent split ISO prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x scripts/publish-release-assets.sh
+          scripts/publish-release-assets.sh build/live
+
+      - name: Preserve compact build manifest
+        uses: actions/upload-artifact@v4
         with:
-          name: Quantic-OS-Final-Live-x86_64-parts
+          name: Quantic-OS-Final-Live-x86_64-manifest-${{ github.run_number }}
           path: |
-            build/live/Quantic-OS-Final-Live-x86_64.iso.part-*
             build/live/Quantic-OS-Final-Live-x86_64.iso.sha256
             build/live/Quantic-OS-Final-Live-x86_64.parts.sha256
+            build/live/BUILD-MANIFEST.txt
             build/live/REASSEMBLE-WINDOWS.txt
             build/live/prepare-quantic-data.ps1
             build/live/QUANTIC-DATA-README.txt
-          retention-days: 7
-          compression-level: 0
+            build/live/RELEASE-NOTES.md
+          retention-days: 30
