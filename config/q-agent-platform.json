@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "principle": "model proposes; deterministic policy authorizes; simulation precedes impact",
+  "capability_tiers": {
+    "auto": ["read_local", "inspect_system", "search_local_index", "simulate"],
+    "approve": ["write_user_file", "network_access", "connector_use", "install_package", "service_change"],
+    "simulate_then_approve": ["disk_change", "boot_change", "security_policy_change", "system_update"],
+    "deny": ["disable_safety_boundary", "self_grant_privileges", "erase_internal_disk_without_explicit_user_operation"]
+  },
+  "execution": {
+    "default": "sandbox",
+    "levels": ["PLAN", "SANDBOX", "SHADOW", "CANARY", "COMMIT", "ROLLBACK"],
+    "verify_after_commit": true,
+    "automatic_rollback_on_failed_healthcheck": true,
+    "audit_every_action": true
+  },
+  "portable_data": {
+    "label": "QUANTIC-DATA",
+    "directories": ["models", "memory", "index", "skills", "connectors", "tasks", "simulations", "audit", "vault"]
+  },
+  "future": {
+    "hardware_aware_model_routing": true,
+    "resumable_long_tasks": true,
+    "semantic_memory": true,
+    "skill_graph": true,
+    "mcp_gateway": true,
+    "encrypted_connector_vault": true,
+    "digital_twin": true,
+    "predictive_resource_broker": true
+  }
+}

@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd); cd "$ROOT"
-python3 -m py_compile services/*.py scripts/generate-kickstart.py
-bash -n scripts/build-rpms.sh scripts/build-live-iso.sh services/qusb_safe.sh
-pytest -q
-grep -q 'fedora-live-kde.ks' scripts/build-live-iso.sh
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+
+python3 -m py_compile services/*.py scripts/*.py
+bash -n scripts/*.sh services/*.sh
+python3 -m pytest -q
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify systemd/quantic-persistence.service systemd/quantic-core.target
+fi
+
+test -f scripts/remaster-fedora-kde.sh
+test -f .github/workflows/build-remastered-live.yml
+grep -q 'Fedora-KDE-Desktop-Live-44-1.7.x86_64.iso' scripts/remaster-fedora-kde.sh
+grep -q 'BASE_SHA256=' scripts/remaster-fedora-kde.sh
+grep -q 'boot_image any replay' scripts/remaster-fedora-kde.sh
 grep -q 'StackLayout' shell/qml/Main.qml
 grep -q 'lsblk -dn -o NAME,TYPE,TRAN' services/qusb_safe.sh
-echo 'Quantic V1.1 foundation verification: PASS'
+
+echo 'Quantic V1.2 foundation verification: PASS'

@@ -9,7 +9,7 @@ Restart=on-failure
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=%h/.local/share/quantic
+ReadWritePaths=%h/.local/share/quantic -/var/lib/quantic/users
 
 [Install]
 WantedBy=default.target
