@@ -24,6 +24,14 @@ def context_for_goal(goal: Goal | dict[str, Any], *, store=None, graph=None, lim
             key=(item.get("view"),item.get("memory_id"),str(item.get("content")))
             if key not in keys:
                 evidence.append(item); keys.add(key)
+    # Planner context is fail-closed: every representation must be backed by
+    # an authentic, non-quarantined memory citation before it can influence a
+    # plan. Entity-only graph rows remain available to the graph API but are
+    # not planner evidence until their own provenance is bound.
+    evidence=[
+        item for item in evidence
+        if item.get("authentic") is True and not item.get("quarantined", True)
+    ]
     evidence=sorted(evidence,key=lambda x:(float(x.get("score",0)),float(x.get("confidence",0))),reverse=True)[:limit]
     memories=[]
     for item in evidence:

@@ -8,9 +8,11 @@ import time
 try:
     from .qcontracts import MemoryRecord, Receipt
     from .qmemory2 import MemoryStore
+    from .qmemory_trust import provenance_with_trust
 except ImportError:
     from qcontracts import MemoryRecord, Receipt
     from qmemory2 import MemoryStore
+    from qmemory_trust import provenance_with_trust
 
 
 def _confidence(receipt: Receipt) -> float:
@@ -37,28 +39,30 @@ def capture_receipt(receipt: Receipt, *, tool: str, arguments: dict[str, Any], n
     ns = namespace or f"goal:{receipt.goal_id}"
     runtime = receipt.evidence.get("runtime", {}) if isinstance(receipt.evidence, dict) else {}
     verification = runtime.get("verification", {}) if isinstance(runtime, dict) else {}
+    content = {
+        "key": f"execution:{tool}",
+        "tool": tool,
+        "arguments": arguments,
+        "capability": capability,
+        "reversible": bool(reversible),
+        "risk": risk,
+        "outcome": "success" if receipt.ok else "failure",
+        "stage": receipt.stage,
+        "verification": verification,
+        "error": receipt.error,
+    }
+    provenance = provenance_with_trust({
+        "type": "verified_receipt",
+        "receipt_id": receipt.id,
+        "action_id": receipt.action_id,
+        "goal_id": receipt.goal_id,
+        "captured_at": time.time(),
+    }, content, origin="quantic_verified", source_id=f"receipt:{receipt.id}")
     record = MemoryRecord(
         namespace=ns,
         kind="episodic",
-        content={
-            "key": f"execution:{tool}",
-            "tool": tool,
-            "arguments": arguments,
-            "capability": capability,
-            "reversible": bool(reversible),
-            "risk": risk,
-            "outcome": "success" if receipt.ok else "failure",
-            "stage": receipt.stage,
-            "verification": verification,
-            "error": receipt.error,
-        },
-        provenance={
-            "type": "verified_receipt",
-            "receipt_id": receipt.id,
-            "action_id": receipt.action_id,
-            "goal_id": receipt.goal_id,
-            "captured_at": time.time(),
-        },
+        content=content,
+        provenance=provenance,
         confidence=_confidence(receipt),
     )
     try:
@@ -74,11 +78,20 @@ def capture_conversation(text: str, *, namespace: str = "user:default", source: 
     """Capture a user/conversation observation as a candidate memory, not an unquestioned fact."""
     own_store = store is None
     store = store or MemoryStore()
+    captured_at = time.time()
+    content = {"key": f"conversation:{int(captured_at)}", "text": text}
+    origin = "user_explicit" if source in {"conversation", "user_explicit"} else source
+    provenance = provenance_with_trust(
+        {"type": source, "captured_at": captured_at},
+        content,
+        origin=origin,
+        source_id=f"{source}:{int(captured_at * 1000)}",
+    )
     record = MemoryRecord(
         namespace=namespace,
         kind="working",
-        content={"key": f"conversation:{int(time.time())}", "text": text},
-        provenance={"type": source, "captured_at": time.time()},
+        content=content,
+        provenance=provenance,
         confidence=confidence,
     )
     try:

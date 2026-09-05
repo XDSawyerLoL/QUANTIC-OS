@@ -19,9 +19,9 @@ except ImportError:
     from qmodelhub import choose_model
 
 try:
-    from .qcompanion import CompanionMemory
+    from .qcompanion import CompanionMemory, state_directory
 except ImportError:
-    from qcompanion import CompanionMemory
+    from qcompanion import CompanionMemory, state_directory
 
 SYSTEM = """Tu es Q-Agent, le compagnon local et l'agent système de Quantic OS.
 Réponds en français par défaut, sauf si l'utilisateur demande explicitement une autre langue.
@@ -39,7 +39,7 @@ Utilise la mémoire persistante uniquement par la couche de mémoire locale de c
 
 
 def companion_context(memory_path: str | None = None) -> str:
-    path = Path(memory_path) if memory_path else Path.home() / ".local/share/quantic/companion.db"
+    path = Path(memory_path) if memory_path else state_directory() / "companion.db"
     try:
         mem = CompanionMemory(path)
         items = mem.list_prefix("", limit=20)

@@ -13,7 +13,6 @@ TimeoutStartSec=20
 NoNewPrivileges=no
 ProtectSystem=full
 ProtectHome=yes
-PrivateTmp=yes
 
 [Install]
 WantedBy=local-fs.target

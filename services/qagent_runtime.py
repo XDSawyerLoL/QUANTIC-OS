@@ -88,17 +88,19 @@ def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_le
         return out
 
     before = capture()
+    before_state = asdict(before)
     try: persist_snapshot(before, "before")
     except OSError: pass
 
-    journal = rollback_begin(tool, {"arguments": arguments, "before": before}, spec.reversible)
+    journal = rollback_begin(tool, {"arguments": arguments, "before": before_state}, spec.reversible)
     try:
         result = router.invoke(tool, arguments)
         after = capture()
+        after_state = asdict(after)
         try: persist_snapshot(after, "after")
         except OSError: pass
         twin_diff = state_diff(before, after)
-        verification = verify(tool, result, before, after)
+        verification = verify(tool, result, before_state, after_state)
 
         if verification.passed:
             rollback_mark(journal, "committed")

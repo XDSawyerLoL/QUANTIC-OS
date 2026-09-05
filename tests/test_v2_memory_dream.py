@@ -5,6 +5,7 @@ from services.qmemory2 import MemoryStore
 from services.qmemory_capture import capture_receipt
 from services.qdream import consolidate
 from services.qcontext import context_for_goal
+from services.qmemory_trust import citation_lock, provenance_with_trust
 
 
 def test_verified_receipts_consolidate_into_procedure(tmp_path: Path):
@@ -22,6 +23,7 @@ def test_verified_receipts_consolidate_into_procedure(tmp_path: Path):
         assert recalled
         assert recalled[0]["provenance"]["type"] == "q-dream"
         assert len(recalled[0]["provenance"]["source_memory_ids"]) == 2
+        assert citation_lock(recalled[0], for_action=True) is not None
     finally:
         store.close()
 
@@ -30,14 +32,18 @@ def test_context_is_bounded_and_keeps_provenance(tmp_path: Path):
     store = MemoryStore(tmp_path / "memory.sqlite3")
     try:
         for i in range(12):
+            content = {"key": f"k{i}", "text": f"deploy project safely step {i}"}
             store.remember(MemoryRecord(
                 namespace="user:default", kind="semantic",
-                content={"key": f"k{i}", "text": f"deploy project safely step {i}"},
-                provenance={"type": "test", "source": i}, confidence=0.9,
+                content=content,
+                provenance=provenance_with_trust(
+                    {"type": "test", "source": i}, content,
+                    origin="user_explicit", source_id=f"test:context:{i}",
+                ), confidence=0.9,
             ))
         goal = {"id": "goal-x", "title": "deploy project safely", "success_criteria": ["verified"]}
         ctx = context_for_goal(goal, store=store, limit=5)
-        assert len(ctx["memories"]) <= 5
+        assert len(ctx["memories"]) == 5
         assert all("provenance" in item for item in ctx["memories"])
     finally:
         store.close()

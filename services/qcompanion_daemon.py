@@ -8,29 +8,27 @@ It never performs privileged shell execution.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
-from qcompanion import CompanionMemory, CompanionEngine
+from qcompanion import CompanionMemory, CompanionEngine, state_directory
 from qresource import snapshot, plan
+
+PERSISTENCE_STATUS = Path("/run/quantic/persistence.json")
+PERSISTENT_USER_ROOT = Path("/var/lib/quantic/users")
 
 
 def choose_state() -> Path:
-    explicit = os.environ.get("QUANTIC_STATE")
-    if explicit:
-        return Path(explicit)
-    status = Path("/run/quantic/persistence.json")
-    try:
-        data = json.loads(status.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    if data.get("mode") == "persistent":
-        target = Path("/run/quantic/persist/users") / str(os.getuid())
-        target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        target.chmod(0o700)
-        return target
-    return Path.home() / ".local/share/quantic"
+    # Q-Persistence binds QUANTIC-DATA/quantic-state to /var/lib/quantic.
+    # Keep each unprivileged companion below that durable tree; the shared
+    # parent is created with the sticky bit by qpersistence.py.
+    target = state_directory(
+        status_path=PERSISTENCE_STATUS,
+        persistent_user_root=PERSISTENT_USER_ROOT,
+    )
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.chmod(0o700)
+    return target
 
 
 def atomic_json(path: Path, payload: dict) -> None:
@@ -80,7 +78,7 @@ def main() -> None:
             "time": int(time.time()),
             "workload": p.workload,
             "objective": p.objective,
-            "persistent": str(state).startswith("/run/quantic/persist/"),
+            "persistent": state == PERSISTENT_USER_ROOT or PERSISTENT_USER_ROOT in state.parents,
         })
         consume_inbox(engine, state)
         time.sleep(20)

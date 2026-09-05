@@ -42,3 +42,14 @@ def test_foundation_uses_module_test_runner_from_repository_root():
     verifier = (ROOT / "scripts/verify-foundation.sh").read_text()
     assert "python3 -m pytest -q" in verifier
     assert "\npytest -q\n" not in verifier
+
+
+def test_early_persistence_service_has_no_local_fs_ordering_cycle():
+    unit = (ROOT / "systemd/quantic-persistence.service").read_text()
+    verifier = (ROOT / "scripts/verify-foundation.sh").read_text()
+    assert "Before=local-fs.target quantic-core.target" in unit
+    # PrivateTmp orders a service after systemd-tmpfiles-setup, which itself is
+    # after local-fs.target. Combining it with Before=local-fs.target creates a
+    # cycle and systemd drops the persistence job during boot.
+    assert "PrivateTmp=yes" not in unit
+    assert "systemd-analyze verify systemd/quantic-persistence.service systemd/quantic-core.target" in verifier

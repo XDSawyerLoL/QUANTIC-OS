@@ -17,9 +17,11 @@ import time
 try:
     from .qcontracts import MemoryRecord
     from .qmemory2 import MemoryStore
+    from .qmemory_trust import citation_lock, provenance_with_trust
 except ImportError:
     from qcontracts import MemoryRecord
     from qmemory2 import MemoryStore
+    from qmemory_trust import citation_lock, provenance_with_trust
 
 DEFAULT_DIARY = Path("/var/lib/quantic/memory/dream-diary.jsonl")
 
@@ -47,7 +49,11 @@ def consolidate(*, namespace: str, store: MemoryStore | None = None, min_example
     own_store = store is None
     store = store or MemoryStore()
     memories = store.export_namespace(namespace)
-    active_episodes = [m for m in memories if m["status"] == "active" and m["kind"] == "episodic"]
+    active_episodes = [
+        m for m in memories
+        if m["status"] == "active" and m["kind"] == "episodic"
+        and citation_lock(m, for_action=True) is not None
+    ]
 
     by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for m in active_episodes:
@@ -69,22 +75,26 @@ def consolidate(*, namespace: str, store: MemoryStore | None = None, min_example
 
         tool = successes[-1]["content"].get("tool")
         confidence = min(0.99, sum(float(m["confidence"]) for m in successes) / len(successes))
+        content = {
+            "key": f"procedure:{tool}",
+            "tool": tool,
+            "lesson": f"Verified successful procedure for {tool}",
+            "successful_examples": len(successes),
+            "failure_examples": len(failures),
+        }
+        source_ids = [m["id"] for m in successes]
+        consolidated_at = time.time()
+        provenance = provenance_with_trust({
+            "type": "q-dream",
+            "source_memory_ids": source_ids,
+            "conflicting_failure_ids": [m["id"] for m in failures],
+            "consolidated_at": consolidated_at,
+        }, content, origin="quantic_verified", source_id=f"q-dream:{tool}:{int(consolidated_at * 1000)}")
         record = MemoryRecord(
             namespace=namespace,
             kind="procedural",
-            content={
-                "key": f"procedure:{tool}",
-                "tool": tool,
-                "lesson": f"Verified successful procedure for {tool}",
-                "successful_examples": len(successes),
-                "failure_examples": len(failures),
-            },
-            provenance={
-                "type": "q-dream",
-                "source_memory_ids": [m["id"] for m in successes],
-                "conflicting_failure_ids": [m["id"] for m in failures],
-                "consolidated_at": time.time(),
-            },
+            content=content,
+            provenance=provenance,
             confidence=confidence,
         )
         existing = store.recall(f"procedure {tool}", namespace=namespace, kinds=["procedural"], limit=3)

@@ -7,6 +7,9 @@ cd "$ROOT"
 python3 -m py_compile services/*.py scripts/*.py
 bash -n scripts/*.sh services/*.sh
 python3 -m pytest -q
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify systemd/quantic-persistence.service systemd/quantic-core.target
+fi
 
 test -f scripts/remaster-fedora-kde.sh
 test -f .github/workflows/build-remastered-live.yml
