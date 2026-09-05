@@ -6,9 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_main_is_the_single_automatic_iso_delivery_branch():
     workflow = (ROOT / ".github/workflows/build-quantic-final.yml").read_text()
+    test_workflow = (ROOT / ".github/workflows/test-quantic-v2.yml").read_text()
     assert "branches: [main]" in workflow
     assert "contents: write" in workflow
     assert "timeout-minutes: 360" in workflow
+    assert "pull_request:\n    branches:\n      - main" in test_workflow
 
 
 def test_large_iso_is_split_and_published_as_persistent_release_assets():
