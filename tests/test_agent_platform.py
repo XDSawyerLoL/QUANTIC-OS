@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from qsimulation import evaluate
 from qtoolrouter import default_router
 from qtwin import compare
 from qverify import verify
+from qcontracts import Action, Goal, Plan
 import qagent_runtime
 import qagent
 import qcompanion
@@ -163,8 +165,9 @@ def test_windows_filesystems_get_runtime_writable_mount_masks():
     for fs_type in ("vfat", "exfat", "ntfs", "ntfs3"):
         options = set(qpersistence.mount_options(fs_type).split(","))
         assert {"rw", "nosuid", "nodev", "noexec"}.issubset(options)
-        assert {"uid=0", "gid=0", "fmask=0000", "dmask=0000"}.issubset(options)
-    assert "fmask=0000" not in qpersistence.mount_options("ext4")
+        assert {"fmask=0077", "dmask=0077"}.issubset(options)
+        assert "fmask=0000" not in options
+    assert "fmask=0077" not in qpersistence.mount_options("ext4")
 
 
 def test_ephemeral_persistence_prepares_ollama_owned_layout(tmp_path, monkeypatch):
@@ -182,8 +185,58 @@ def test_ephemeral_persistence_prepares_ollama_owned_layout(tmp_path, monkeypatc
 
     ollama = state / "models" / "ollama"
     assert ollama.is_dir()
-    assert ownership == [(ollama, 987, 986)]
+    assert (ollama, 987, 986) in ownership
+    for private in qpersistence.PRIVATE_LAYOUT:
+        path = state / private
+        assert path.is_dir()
+        assert path.stat().st_mode & 0o777 == 0o700
     unit = (ROOT / "systemd" / "quantic-ollama.service").read_text(encoding="utf-8")
     assert "ExecStartPre=+/usr/bin/mkdir -p /var/lib/quantic/models/ollama" in unit
     assert "ExecStartPre=-+/usr/bin/chown ollama:ollama /var/lib/quantic/models/ollama" in unit
     assert "ExecStartPre=/usr/bin/test -w /var/lib/quantic/models/ollama" in unit
+
+
+def test_non_posix_media_exposes_only_the_ollama_model_subtree(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    mount = tmp_path / "mount"
+    calls = []
+    monkeypatch.setattr(qpersistence, "STATE", state)
+    monkeypatch.setattr(qpersistence, "MOUNT", mount)
+    monkeypatch.setattr(qpersistence, "filesystem_type", lambda _: "exfat")
+    monkeypatch.setattr(qpersistence.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=987, pw_gid=986))
+
+    def fake_run(*args, check=True):
+        calls.append(args)
+        return SimpleNamespace(returncode=1 if args[0] == "mountpoint" else 0, stdout="")
+
+    monkeypatch.setattr(qpersistence, "run", fake_run)
+    mode = qpersistence.mount_persistence("/dev/sdz1")
+
+    assert mode == "models-only"
+    binds = [args for args in calls if args[:2] == ("mount", "--bind")]
+    assert binds == [("mount", "--bind", str(mount / "quantic-state" / "models" / "ollama"), str(state / "models" / "ollama"))]
+    assert all(str(mount / "quantic-state") != args[-1] for args in binds)
+
+
+def test_public_plan_events_are_redacted_but_executable_plan_is_not(monkeypatch):
+    emitted = []
+    saved = []
+    monkeypatch.setattr(qagent_runtime, "BUS", SimpleNamespace(emit=lambda topic, payload, source, correlation_id: emitted.append((topic, payload))))
+    monkeypatch.setattr(qagent_runtime, "save_goal", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qagent_runtime, "save_plan", lambda plan: saved.append(plan))
+    monkeypatch.setattr(
+        qagent_runtime,
+        "context_for_goal",
+        lambda goal: {"goal_id": goal.id, "abstain": False, "evidence": [{"memory_id": "mem-1", "content": {"token": "memory-secret"}}]},
+    )
+    goal = Goal("Secure plan", "intent-1", ["done"])
+    action = Action("file.read", {"path": "/tmp/demo", "token": "plan-secret"}, "file.read", reversible=True)
+    plan = Plan(goal.id, [action])
+
+    qagent_runtime.register_goal_plan(goal, plan)
+
+    assert saved[0].actions[0].arguments["token"] == "plan-secret"
+    journal_projection = json.dumps(emitted, ensure_ascii=False)
+    assert "plan-secret" not in journal_projection
+    assert "memory-secret" not in journal_projection
+    assert "<redacted>" in journal_projection

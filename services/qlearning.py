@@ -27,19 +27,24 @@ except ImportError:
     from qquantum_broker import benchmark as quantum_benchmark, decide as quantum_decide, receipt_dict
 
 DEFAULT_ROOT = Path(os.environ.get("QUANTIC_EVOLUTION_DIR", "/var/lib/quantic/evolution"))
+DEFAULT_SKILL_ROOT = Path(os.environ.get("QUANTIC_SKILLS_DIR", "/var/lib/quantic/skills"))
 RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+SECRET_KEYS = {"password", "passwd", "secret", "token", "api_key", "apikey", "authorization", "cookie"}
 
 
 def _id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
-def _canonical(obj: Any) -> bytes:
-    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def _digest(obj: Any) -> str:
-    return hashlib.sha256(_canonical(obj)).hexdigest()
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): ("<redacted>" if str(key).lower() in SECRET_KEYS else _redact(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -94,18 +99,30 @@ class PromotionReceipt:
 
 
 class EvolutionStore:
-    def __init__(self, root: Path = DEFAULT_ROOT) -> None:
+    def __init__(self, root: Path = DEFAULT_ROOT, *, skill_root: Path = DEFAULT_SKILL_ROOT) -> None:
         self.root = Path(root)
         self.candidates = self.root / "candidates"
-        self.skills = self.root / "skills"
+        # Promoted artifacts must land in qskills.USER_ROOT so the runtime can
+        # discover and verify them.  Evolution evidence remains separate.
+        self.skills = Path(skill_root)
         self.receipts = self.root / "receipts"
 
     @staticmethod
     def _atomic(path: Path, row: dict[str, Any]) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        try:
+            path.parent.chmod(0o700)
+        except OSError:
+            pass
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        data = json.dumps(row, ensure_ascii=False, indent=2).encode("utf-8")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
         return path
 
     def save_candidate(self, candidate: SkillCandidate) -> Path:
@@ -256,23 +273,33 @@ def promote(candidate: SkillCandidate, evaluation: Evaluation, *, store: Evoluti
 
     versions = store.list_versions(candidate.name)
     version = version or f"1.0.{len(versions)}"
-    payload = {
+    procedure = {
+        "schema": "quantic.procedure.v2",
+        "name": candidate.name,
+        "version": version,
+        "description": candidate.description,
+        "source": candidate.source,
+        "steps": [_redact(asdict(step)) for step in candidate.steps],
+        "evidence_memory_ids": candidate.evidence_memory_ids,
+        "evaluation": asdict(evaluation),
+        "rollback_supported": True,
+    }
+    root = store.skills / candidate.name / version
+    entrypoint = store._atomic(root / "procedure.json", procedure)
+    digest = hashlib.sha256(entrypoint.read_bytes()).hexdigest()
+    manifest = {
         "schema": "quantic.skill.v2",
         "name": candidate.name,
         "version": version,
         "description": candidate.description,
         "source": candidate.source,
-        "capabilities": sorted({s.capability for s in candidate.steps if s.capability != "unknown"}),
+        "tools": sorted({step.tool for step in candidate.steps}),
+        "capabilities": sorted({step.capability for step in candidate.steps if step.capability != "unknown"}),
         "permissions": [],
-        "steps": [asdict(s) for s in candidate.steps],
-        "evidence_memory_ids": candidate.evidence_memory_ids,
-        "evaluation": asdict(evaluation),
-        "rollback_supported": True,
+        "entrypoint": entrypoint.name,
+        "sha256": digest,
     }
-    digest = _digest(payload)
-    payload["sha256"] = digest
-    root = store.skills / candidate.name / version
-    path = store._atomic(root / "skill.json", payload)
+    path = store._atomic(root / "skill.json", manifest)
     store.rollback(candidate.name, version)
     receipt = PromotionReceipt(candidate.id, candidate.name, version, digest, str(path), True, "promoted")
     store.save_receipt(receipt)

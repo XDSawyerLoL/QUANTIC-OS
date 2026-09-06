@@ -84,6 +84,7 @@ def test_shell_has_non_decorative_authorization_sheet():
     assert "authorizationBridge.reject()" in sheet
     assert "Voir les changements" in sheet
     assert 'p->start("/usr/bin/pkexec",{privilegedHelper(),verb,plan,action})' in cpp
+    assert 'p->start("/usr/bin/pkexec",{privilegedHelper(),"pending"})' in cpp
     assert 'return "/usr/libexec/quantic-approval"' in cpp
 
 

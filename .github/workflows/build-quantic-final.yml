@@ -41,7 +41,7 @@ jobs:
           grep -q 'QUANTIC-DATA' services/qpersistence.py
           grep -q 'models.*ollama' services/qpersistence.py
           grep -q 'removable_usb' services/qpersistence.py
-          grep -q 'fmask=0000' services/qpersistence.py
+          grep -q 'fmask=0077' services/qpersistence.py
           grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' systemd/quantic-ollama.service
           grep -q 'ExecStartPre=+/usr/bin/mkdir' systemd/quantic-ollama.service
           grep -q '/usr/bin/pkexec' shell/src/AuthorizationBridge.cpp
@@ -104,6 +104,7 @@ jobs:
           cat > QUANTIC-DATA-README.txt <<'EOF'
           Quantic OS uses a separate removable volume labelled QUANTIC-DATA for persistent models, memory and agent state.
           The included PowerShell bootstrap is deliberately non-destructive: it refuses the Windows system drive, refuses non-removable volumes, and never formats or repartitions a disk.
+          FAT, exFAT and NTFS cannot enforce Quantic's privilege separation, so on those filesystems only the Ollama model directory is mounted persistently. Private memory and agent state remain session-local. A POSIX filesystem is required for full-state persistence.
           After creating/labelling the removable data volume, run:
             .\prepare-quantic-data.ps1 -Drive E:
           Optionally supply an existing Ollama model-store directory:

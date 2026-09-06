@@ -50,3 +50,4 @@ if ($OllamaBundle) {
 Write-Host "QUANTIC-DATA prepared safely on $normalizedDrive"
 Write-Host "No disk was formatted or repartitioned."
 Write-Host "Model store: $root\models\ollama"
+Write-Host "Security note: on FAT, exFAT or NTFS, Quantic persists only Ollama models; private memory and agent state remain session-local."

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 from pathlib import Path
+import re
 import time
 
 try:
@@ -37,6 +38,7 @@ except ImportError:
 RUNTIME_AUDIT = Path("/var/lib/quantic/audit/runtime.jsonl")
 BUS = EventBus()
 _SECRET_KEYS = {"password", "passwd", "secret", "token", "api_key", "apikey", "authorization", "cookie"}
+_SECRET_TEXT = re.compile(r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization|cookie)\s*[:=]\s*[^\s,;]+")
 
 
 def _runtime_log(row: dict) -> None:
@@ -60,7 +62,47 @@ def _redact_arguments(value):
         return {k: ("<redacted>" if str(k).lower() in _SECRET_KEYS else _redact_arguments(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [_redact_arguments(x) for x in value]
+    if isinstance(value, str):
+        return _SECRET_TEXT.sub(lambda m: f"{m.group(1)}=<redacted>", value)
     return value
+
+
+def _public_action(action: Action | dict) -> dict:
+    row = to_dict(action) if isinstance(action, Action) else dict(action)
+    row["arguments"] = _redact_arguments(row.get("arguments", {}))
+    return row
+
+
+def _public_receipt(receipt: Receipt) -> dict:
+    runtime = receipt.evidence.get("runtime", {}) if isinstance(receipt.evidence, dict) else {}
+    safe_runtime = {
+        key: _redact_arguments(runtime[key])
+        for key in ("decision", "simulation", "verification")
+        if key in runtime
+    }
+    return {
+        "id": receipt.id,
+        "action_id": receipt.action_id,
+        "goal_id": receipt.goal_id,
+        "ok": receipt.ok,
+        "stage": receipt.stage,
+        "error": _redact_arguments(receipt.error),
+        "created_at": receipt.created_at,
+        "evidence": {"runtime": safe_runtime},
+    }
+
+
+def _public_memory_context(context: dict) -> dict:
+    evidence = context.get("evidence", []) if isinstance(context, dict) else []
+    return {
+        "goal_id": context.get("goal_id", "") if isinstance(context, dict) else "",
+        "abstain": bool(context.get("abstain", True)) if isinstance(context, dict) else True,
+        "evidence_count": len(evidence) if isinstance(evidence, list) else 0,
+        "memory_ids": [
+            str(item.get("memory_id")) for item in evidence
+            if isinstance(item, dict) and item.get("memory_id")
+        ][:8],
+    }
 
 
 def execute(tool: str, arguments: dict, *, approved: bool = False, simulation_level: str = "SANDBOX") -> dict:
@@ -133,14 +175,15 @@ def register_goal_plan(goal: Goal, plan: Plan) -> dict:
         raise ValueError("plan.goal_id must match goal.id")
     save_goal(goal, active_plan_id=plan.id)
     save_plan(plan)
-    _emit("goal.created", to_dict(goal), goal.id)
+    _emit("goal.created", _redact_arguments(to_dict(goal)), goal.id)
     memory_context = {"goal_id": goal.id, "memories": []}
     try:
         memory_context = context_for_goal(goal)
-        _emit("memory.context.prepared", memory_context, goal.id)
+        _emit("memory.context.prepared", _public_memory_context(memory_context), goal.id)
     except (OSError, ValueError):
         pass
-    _emit("plan.created", {**to_dict(plan), "memory_context": memory_context}, goal.id)
+    public_plan = _redact_arguments({**to_dict(plan), "actions": [_public_action(action) for action in plan.actions]})
+    _emit("plan.created", {**public_plan, "memory_context": _public_memory_context(memory_context)}, goal.id)
     return {"goal_id": goal.id, "plan_id": plan.id, "actions": len(plan.actions), "memory_context": memory_context}
 
 
@@ -191,7 +234,7 @@ def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str 
             return {"ok": False, "stage": "paused", "goal_id": goal_id, "plan_id": plan_id, "next_action": index}
 
         action = actions[index]
-        _emit("action.started", {"plan_id": plan_id, "index": index, "action": to_dict(action)}, goal_id)
+        _emit("action.started", {"plan_id": plan_id, "index": index, "action": _public_action(action)}, goal_id)
         out = execute(action.tool, action.arguments, approved=approved, simulation_level=simulation_level)
         receipt = Receipt(
             action_id=action.id,
@@ -201,7 +244,8 @@ def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str 
             evidence={"runtime": out},
             error=out.get("error"),
         )
-        _emit("receipt.created", to_dict(receipt), goal_id)
+        public_receipt = _public_receipt(receipt)
+        _emit("receipt.created", public_receipt, goal_id)
         _remember(receipt, action)
 
         if out.get("stage") == "approval":
@@ -213,7 +257,7 @@ def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str 
         if not out.get("ok"):
             update_plan(plan_id, state="failed", next_action=index, last_receipt_id=receipt.id)
             update_goal(goal_id, state="failed", current_action=index, last_error=receipt.error or receipt.stage)
-            _emit("action.failed", {"plan_id": plan_id, "index": index, "receipt": to_dict(receipt)}, goal_id)
+            _emit("action.failed", {"plan_id": plan_id, "index": index, "receipt": public_receipt}, goal_id)
             return {"ok": False, "stage": "failed", "goal_id": goal_id, "plan_id": plan_id, "receipt": to_dict(receipt)}
 
         completed = list(plan_state.completed_action_ids or [])
@@ -227,7 +271,7 @@ def execute_plan(plan_id: str, *, approved: bool = False, simulation_level: str 
             last_receipt_id=receipt.id,
         )
         update_goal(goal_id, state="running", current_action=index + 1)
-        _emit("action.completed", {"plan_id": plan_id, "index": index, "receipt": to_dict(receipt)}, goal_id)
+        _emit("action.completed", {"plan_id": plan_id, "index": index, "receipt": public_receipt}, goal_id)
         executed += 1
 
     update_plan(plan_id, state="done", next_action=len(actions))

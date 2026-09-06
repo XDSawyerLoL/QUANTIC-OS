@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Quantic persistence broker.
 
-Finds a *removable USB* filesystem labelled QUANTIC-DATA, mounts it safely,
-and binds durable Quantic state into /var/lib/quantic. Internal disks are
-explicitly rejected even if they carry the same label. If no valid persistence
+Finds a *removable USB* filesystem labelled QUANTIC-DATA and mounts it safely.
+POSIX filesystems may back the complete protected state tree; filesystems that
+cannot enforce Unix permissions expose only the Ollama model subtree. Internal
+disks are explicitly rejected even if they carry the same label. If no valid
 volume is present, Quantic continues in ephemeral mode without blocking boot.
 """
 from __future__ import annotations
@@ -18,7 +19,12 @@ STATE = Path("/var/lib/quantic")
 RUNTIME = Path("/run/quantic")
 MOUNT = Path("/run/quantic/persist")
 LABEL = os.environ.get("QUANTIC_PERSIST_LABEL", "QUANTIC-DATA")
-LAYOUT = ("models", "memory", "index", "skills", "connectors", "tasks", "simulations", "audit", "vault")
+PRIVATE_LAYOUT = (
+    "memory", "index", "skills", "connectors", "tasks", "simulations",
+    "audit", "vault", "autonomy", "rollback", "twin", "keys",
+    "evolution", "approvals",
+)
+LAYOUT = ("models", "events", *PRIVATE_LAYOUT)
 NON_POSIX_FILESYSTEMS = {"vfat", "msdos", "exfat", "ntfs", "ntfs3", "fuseblk"}
 
 
@@ -66,10 +72,16 @@ def filesystem_type(dev: str) -> str:
 def mount_options(fs_type: str) -> str:
     options = ["rw", "nosuid", "nodev", "noexec"]
     if fs_type in NON_POSIX_FILESYSTEMS:
-        # Windows-prepared FAT/exFAT/NTFS volumes do not implement chmod or
-        # chown.  Their permissions must be supplied at mount time so the
-        # desktop companion and the dedicated Ollama user can both persist.
-        options.extend(("uid=0", "gid=0", "fmask=0000", "dmask=0000"))
+        # Windows-prepared FAT/exFAT/NTFS volumes cannot isolate Quantic's
+        # root-consumed plans, keys and memory with Unix modes.  Mount the
+        # volume for the dedicated Ollama account only; mount_persistence()
+        # exposes just its model subtree and keeps sensitive state ephemeral.
+        try:
+            account = pwd.getpwnam("ollama")
+            uid, gid = account.pw_uid, account.pw_gid
+        except KeyError:
+            uid, gid = 0, 0
+        options.extend((f"uid={uid}", f"gid={gid}", "fmask=0077", "dmask=0077"))
     return ",".join(options)
 
 
@@ -90,7 +102,16 @@ def prepare_ollama_directory(durable: Path) -> None:
 
 def initialise_layout(durable: Path) -> None:
     for name in LAYOUT:
-        (durable / name).mkdir(parents=True, exist_ok=True)
+        path = durable / name
+        path.mkdir(parents=True, exist_ok=True)
+        if name in PRIVATE_LAYOUT:
+            try:
+                os.chown(path, 0, 0)
+                path.chmod(0o700)
+            except OSError:
+                # On non-POSIX media the whole source mount is Ollama-only and
+                # none of these directories is exposed to the runtime.
+                pass
     prepare_ollama_directory(durable)
     users = durable / "users"
     users.mkdir(parents=True, exist_ok=True)
@@ -101,18 +122,28 @@ def initialise_layout(durable: Path) -> None:
         pass
 
 
-def mount_persistence(dev: str) -> bool:
+def _bind(source: Path, target: Path) -> bool:
+    target.mkdir(parents=True, exist_ok=True)
+    if run("mountpoint", "-q", str(target), check=False).returncode == 0:
+        return True
+    p = run("mount", "--bind", str(source), str(target), check=False)
+    return p.returncode == 0
+
+
+def mount_persistence(dev: str) -> str | None:
     fs_type = filesystem_type(dev)
     if run("mountpoint", "-q", str(MOUNT), check=False).returncode != 0:
         p = run("mount", "-o", mount_options(fs_type), dev, str(MOUNT), check=False)
         if p.returncode != 0:
-            return False
+            return None
     durable = MOUNT / "quantic-state"
     durable.mkdir(parents=True, exist_ok=True)
     initialise_layout(durable)
-    if run("mountpoint", "-q", str(STATE), check=False).returncode != 0:
-        run("mount", "--bind", str(durable), str(STATE))
-    return True
+    if fs_type in NON_POSIX_FILESYSTEMS:
+        models = durable / "models" / "ollama"
+        target = STATE / "models" / "ollama"
+        return "models-only" if _bind(models, target) else None
+    return "persistent" if _bind(durable, STATE) else None
 
 
 def write_status(mode: str, device: str | None = None, reason: str | None = None) -> None:
@@ -131,8 +162,9 @@ def main() -> int:
     if not removable_usb(dev):
         write_status("ephemeral", dev, "label found but device is not a writable removable USB disk")
         return 0
-    if mount_persistence(dev):
-        write_status("persistent", dev)
+    mode = mount_persistence(dev)
+    if mode:
+        write_status(mode, dev)
         return 0
     write_status("degraded", dev, "mount failed")
     return 0

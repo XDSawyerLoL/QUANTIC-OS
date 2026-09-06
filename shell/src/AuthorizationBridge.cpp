@@ -30,7 +30,10 @@ void AuthorizationBridge::refresh(){
         }else{m_status="Service d’autorisation indisponible";}
         emit changed();p->deleteLater();
     });
-    p->start(pythonExe(),{servicePath(),"pending"});
+    if(QFile::exists(privilegedHelper()))
+        p->start("/usr/bin/pkexec",{privilegedHelper(),"pending"});
+    else
+        p->start(pythonExe(),{servicePath(),"pending"});
 }
 void AuthorizationBridge::decide(const QString &verb){
     if(m_busy||!m_pending)return;

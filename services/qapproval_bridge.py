@@ -170,7 +170,7 @@ def main() -> int:
     parser.add_argument("action_id", nargs="?")
     args = parser.parse_args()
     installed = str(Path(__file__).resolve()).startswith("/usr/lib/quantic/")
-    if args.command != "pending" and installed and os.geteuid() != 0:
+    if installed and os.geteuid() != 0:
         out = {"ok": False, "error": "privileged-helper-required"}
     elif args.command == "pending":
         out = pending()

@@ -1,5 +1,7 @@
 from pathlib import Path
+import json
 
+from services import qskills
 from services.qcontracts import MemoryRecord
 from services.qlearning import (
     EvolutionStore,
@@ -75,10 +77,10 @@ def test_high_risk_skill_requires_human_gate() -> None:
     assert reason == "risk_requires_human_approval"
 
 
-def test_candidate_must_beat_baseline_and_not_regress(tmp_path: Path) -> None:
+def test_candidate_must_beat_baseline_and_not_regress(tmp_path: Path, monkeypatch) -> None:
     candidate = compose_candidate(
         "fast-copy", "faster copy",
-        [ProcedureStep("files.copy", {}, capability="files.write", reversible=True)],
+        [ProcedureStep("files.copy", {"token": "must-not-be-published"}, capability="files.write", reversible=True)],
         evidence_memory_ids=["m1", "m2", "m3"], success_rate=1.0, samples=3,
     )
 
@@ -90,11 +92,24 @@ def test_candidate_must_beat_baseline_and_not_regress(tmp_path: Path) -> None:
     assert bad.accepted is False
     assert bad.reason == "regression_detected"
 
-    evo = EvolutionStore(tmp_path / "evolution")
+    skill_root = tmp_path / "skills"
+    evo = EvolutionStore(tmp_path / "evolution", skill_root=skill_root)
     receipt = promote(candidate, good, store=evo, allowed_capabilities=["files.write"])
     assert receipt.promoted is True
-    assert Path(receipt.path).is_file()
-    assert (tmp_path / "evolution" / "skills" / candidate.name / "ACTIVE").read_text() == receipt.version
+    manifest_path = Path(receipt.path)
+    assert manifest_path.is_file()
+    assert (skill_root / candidate.name / "ACTIVE").read_text() == receipt.version
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["entrypoint"] == "procedure.json"
+    assert manifest["tools"] == ["files.copy"]
+    procedure = json.loads((manifest_path.parent / manifest["entrypoint"]).read_text())
+    assert procedure["steps"][0]["arguments"]["token"] == "<redacted>"
+    monkeypatch.setattr(qskills, "USER_ROOT", skill_root)
+    loaded = qskills.load_manifest(manifest_path)
+    assert loaded.trusted is True
+    assert loaded.tools == ["files.copy"]
+    discovered = {skill.name: skill for skill in qskills.discover()}
+    assert discovered[candidate.name].trusted is True
 
 
 def test_quantum_exploration_is_optional_and_proof_gated() -> None:

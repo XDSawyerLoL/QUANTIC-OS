@@ -1,4 +1,5 @@
 from pathlib import Path
+import stat
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,10 @@ def test_goal_plan_survive_reload(tmp_path, monkeypatch):
     assert loaded_goal.active_plan_id == plan.id
     assert loaded_plan.plan["id"] == plan.id
     assert loaded_plan.plan["actions"][0]["id"] == action.id
+    assert stat.S_IMODE((tmp_path / "goals").stat().st_mode) == 0o700
+    assert stat.S_IMODE((tmp_path / "plans").stat().st_mode) == 0o700
+    assert stat.S_IMODE((tmp_path / "goals" / f"{goal.id}.json").stat().st_mode) == 0o600
+    assert stat.S_IMODE((tmp_path / "plans" / f"{plan.id}.json").stat().st_mode) == 0o600
 
 
 def test_resume_cursor_is_durable(tmp_path, monkeypatch):
