@@ -7,6 +7,7 @@
 #include <QProcess>
 
 static QString pythonExe(){return QFile::exists("/usr/bin/python3")?"/usr/bin/python3":"python3";}
+static QString privilegedHelper(){return "/usr/libexec/quantic-approval";}
 
 AuthorizationBridge::AuthorizationBridge(QObject *parent):QObject(parent){
     connect(&m_timer,&QTimer::timeout,this,&AuthorizationBridge::refresh);
@@ -44,7 +45,13 @@ void AuthorizationBridge::decide(const QString &verb){
         else m_status="Décision non appliquée";
         m_busy=false;emit changed();p->deleteLater();QTimer::singleShot(300,this,&AuthorizationBridge::refresh);
     });
-    p->start(pythonExe(),{servicePath(),verb,plan,action});
+    // Production decisions cross the PolicyKit boundary through a fixed,
+    // root-owned helper.  The repository fallback keeps local shell builds
+    // testable without granting the development tree elevated privileges.
+    if(QFile::exists(privilegedHelper()))
+        p->start("/usr/bin/pkexec",{privilegedHelper(),verb,plan,action});
+    else
+        p->start(pythonExe(),{servicePath(),verb,plan,action});
 }
 void AuthorizationBridge::approve(){decide("approve");}
 void AuthorizationBridge::reject(){decide("reject");}

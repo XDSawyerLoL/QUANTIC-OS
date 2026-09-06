@@ -53,3 +53,20 @@ def test_early_persistence_service_has_no_local_fs_ordering_cycle():
     # cycle and systemd drops the persistence job during boot.
     assert "PrivateTmp=yes" not in unit
     assert "systemd-analyze verify systemd/quantic-persistence.service systemd/quantic-core.target" in verifier
+
+
+def test_final_image_contains_the_privileged_approval_boundary():
+    remaster = (ROOT / "scripts" / "remaster-quantic-final.sh").read_text()
+    rpm = (ROOT / "rpm" / "quantic-services.spec").read_text()
+    assert 'services/qapproval_privileged.sh" "$ROOT_TREE/usr/libexec/quantic-approval' in remaster
+    assert 'polkit/org.quantic.approval.policy" "$ROOT_TREE/usr/share/polkit-1/actions/org.quantic.approval.policy' in remaster
+    assert 'test -x "$VERIFY_MNT/usr/libexec/quantic-approval"' in remaster
+    assert "services/qapproval_privileged.sh %{buildroot}%{_libexecdir}/quantic-approval" in rpm
+    assert "polkit/org.quantic.approval.policy" in rpm
+
+
+def test_iso_checksum_records_only_the_portable_basename():
+    for name in ("remaster-quantic-final.sh", "remaster-fedora-kde.sh"):
+        remaster = (ROOT / "scripts" / name).read_text()
+        assert 'sha256sum "$(basename "$OUT_ISO")"' in remaster
+        assert 'sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"' not in remaster

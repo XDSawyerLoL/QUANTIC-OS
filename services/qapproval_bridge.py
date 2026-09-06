@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -168,7 +169,10 @@ def main() -> int:
     parser.add_argument("plan_id", nargs="?")
     parser.add_argument("action_id", nargs="?")
     args = parser.parse_args()
-    if args.command == "pending":
+    installed = str(Path(__file__).resolve()).startswith("/usr/lib/quantic/")
+    if args.command != "pending" and installed and os.geteuid() != 0:
+        out = {"ok": False, "error": "privileged-helper-required"}
+    elif args.command == "pending":
         out = pending()
     elif not args.plan_id or not args.action_id:
         out = {"ok": False, "error": "plan-and-action-required"}

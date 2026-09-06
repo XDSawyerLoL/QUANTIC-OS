@@ -17,6 +17,7 @@ import qagent_runtime
 import qagent
 import qcompanion
 import qcompanion_daemon
+import qpersistence
 from qtwin import SystemSnapshot
 
 
@@ -156,3 +157,33 @@ def test_agent_reads_the_same_companion_memory_as_daemon(tmp_path, monkeypatch):
 
     assert "project:quantic" in context
     assert "persistent" in context
+
+
+def test_windows_filesystems_get_runtime_writable_mount_masks():
+    for fs_type in ("vfat", "exfat", "ntfs", "ntfs3"):
+        options = set(qpersistence.mount_options(fs_type).split(","))
+        assert {"rw", "nosuid", "nodev", "noexec"}.issubset(options)
+        assert {"uid=0", "gid=0", "fmask=0000", "dmask=0000"}.issubset(options)
+    assert "fmask=0000" not in qpersistence.mount_options("ext4")
+
+
+def test_ephemeral_persistence_prepares_ollama_owned_layout(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    runtime = tmp_path / "run"
+    mount = runtime / "persist"
+    ownership = []
+    monkeypatch.setattr(qpersistence, "STATE", state)
+    monkeypatch.setattr(qpersistence, "RUNTIME", runtime)
+    monkeypatch.setattr(qpersistence, "MOUNT", mount)
+    monkeypatch.setattr(qpersistence.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=987, pw_gid=986))
+    monkeypatch.setattr(qpersistence.os, "chown", lambda path, uid, gid: ownership.append((Path(path), uid, gid)))
+
+    qpersistence.ensure_dirs()
+
+    ollama = state / "models" / "ollama"
+    assert ollama.is_dir()
+    assert ownership == [(ollama, 987, 986)]
+    unit = (ROOT / "systemd" / "quantic-ollama.service").read_text(encoding="utf-8")
+    assert "ExecStartPre=+/usr/bin/mkdir -p /var/lib/quantic/models/ollama" in unit
+    assert "ExecStartPre=-+/usr/bin/chown ollama:ollama /var/lib/quantic/models/ollama" in unit
+    assert "ExecStartPre=/usr/bin/test -w /var/lib/quantic/models/ollama" in unit

@@ -61,6 +61,8 @@ sudo mkdir -p "$ROOT_TREE/usr/lib/quantic/services" "$ROOT_TREE/etc/quantic" "$R
 sudo rsync -a "$ROOT/services/" "$ROOT_TREE/usr/lib/quantic/services/"
 sudo rsync -a "$ROOT/config/" "$ROOT_TREE/etc/quantic/"
 sudo find "$ROOT_TREE/usr/lib/quantic/services" -type f \( -name '*.py' -o -name '*.sh' \) -exec chmod 0755 {} +
+sudo install -D -m 0755 "$ROOT/services/qapproval_privileged.sh" "$ROOT_TREE/usr/libexec/quantic-approval"
+sudo install -D -m 0644 "$ROOT/polkit/org.quantic.approval.policy" "$ROOT_TREE/usr/share/polkit-1/actions/org.quantic.approval.policy"
 sudo install -m 0644 "$ROOT/assets/quantic-wallpaper.svg" "$ROOT_TREE/usr/share/backgrounds/quantic/quantic-wallpaper.svg"
 if [[ -d "$ROOT/plasma/org.quantic.desktop" ]]; then
   sudo mkdir -p "$ROOT_TREE/usr/share/plasma/look-and-feel/org.quantic.desktop"
@@ -117,13 +119,15 @@ LEGACY_WAKE_DAEMON="installed-disabled"
 PERSISTENCE="usb-only:QUANTIC-DATA"
 EOF
 
-sudo chroot "$ROOT_TREE" /sbin/restorecon -RF /usr/libexec/quantic-home /etc/xdg/autostart/quantic-home.desktop /usr/lib/quantic /etc/quantic /usr/lib/systemd/system/quantic-* /usr/lib/systemd/user/quantic-* /usr/share/quantic /usr/share/backgrounds/quantic /usr/share/plasma/look-and-feel/org.quantic.desktop /usr/local/share/applications 2>/dev/null || true
+sudo chroot "$ROOT_TREE" /sbin/restorecon -RF /usr/libexec/quantic-home /usr/libexec/quantic-approval /etc/xdg/autostart/quantic-home.desktop /usr/lib/quantic /etc/quantic /usr/lib/systemd/system/quantic-* /usr/lib/systemd/user/quantic-* /usr/share/polkit-1/actions/org.quantic.approval.policy /usr/share/quantic /usr/share/backgrounds/quantic /usr/share/plasma/look-and-feel/org.quantic.desktop /usr/local/share/applications 2>/dev/null || true
 
 echo '[6c/10] Validating injected V2 runtime'
-for f in qagent.py qagent_runtime.py qpolicy.py qsimulation.py qcontainment.py qtoolrouter.py qtwin.py qverify.py qrollback.py qskills.py qmcp.py qtasks.py qpersistence.py qhealth.py qvoice.py qvoice_neural.py qdream.py qdream_runner.py; do
+for f in qagent.py qagent_runtime.py qapproval_bridge.py qpolicy.py qsimulation.py qcontainment.py qtoolrouter.py qtwin.py qverify.py qrollback.py qskills.py qmcp.py qtasks.py qpersistence.py qhealth.py qvoice.py qvoice_neural.py qdream.py qdream_runner.py; do
   sudo test -x "$ROOT_TREE/usr/lib/quantic/services/$f"
 done
 sudo test -x "$ROOT_TREE/usr/libexec/quantic-home"
+sudo test -x "$ROOT_TREE/usr/libexec/quantic-approval"
+sudo test -s "$ROOT_TREE/usr/share/polkit-1/actions/org.quantic.approval.policy"
 sudo test -x "$ROOT_TREE/usr/bin/ollama"
 sudo test -x "$ROOT_TREE/usr/bin/bwrap"
 sudo test -s "$ROOT_TREE/usr/share/quantic/models/kokoro/kokoro-v1.0.onnx"
@@ -155,6 +159,8 @@ xorriso -osirrox on -indev "$OUT_ISO" -extract /LiveOS/squashfs.img "$VERIFY_IMG
 fsck.erofs "$VERIFY_IMG" >/dev/null
 sudo mount -t erofs -o loop,ro "$VERIFY_IMG" "$VERIFY_MNT"; VERIFY_MOUNTED=1
 sudo test -x "$VERIFY_MNT/usr/libexec/quantic-home"
+sudo test -x "$VERIFY_MNT/usr/libexec/quantic-approval"
+sudo test -s "$VERIFY_MNT/usr/share/polkit-1/actions/org.quantic.approval.policy"
 sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qagent_runtime.py"
 sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qpolicy.py"
 sudo test -x "$VERIFY_MNT/usr/lib/quantic/services/qsimulation.py"
@@ -173,7 +179,7 @@ sudo grep -q 'LOCAL_MODEL="external:QUANTIC-DATA/models/ollama"' "$VERIFY_MNT/et
 sudo grep -q 'VOICE_MODE="push-to-talk-adaptive-local"' "$VERIFY_MNT/etc/quantic-release"
 ! sudo test -d "$VERIFY_MNT/usr/share/quantic/ollama-models"
 sudo umount "$VERIFY_MNT"; VERIFY_MOUNTED=0
-sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"
+(cd "$OUT_DIR" && sha256sum "$(basename "$OUT_ISO")" > "$(basename "$OUT_ISO").sha256")
 
 echo '[10/10] Quantic OS V2 split-runtime image complete'
 ls -lh "$OUT_ISO" "$OUT_ISO.sha256"

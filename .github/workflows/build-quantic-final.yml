@@ -41,7 +41,11 @@ jobs:
           grep -q 'QUANTIC-DATA' services/qpersistence.py
           grep -q 'models.*ollama' services/qpersistence.py
           grep -q 'removable_usb' services/qpersistence.py
+          grep -q 'fmask=0000' services/qpersistence.py
           grep -q 'OLLAMA_MODELS=/var/lib/quantic/models/ollama' systemd/quantic-ollama.service
+          grep -q 'ExecStartPre=+/usr/bin/mkdir' systemd/quantic-ollama.service
+          grep -q '/usr/bin/pkexec' shell/src/AuthorizationBridge.cpp
+          test -f polkit/org.quantic.approval.policy
           grep -q 'WHISPER_MODEL' services/qvoice.py
           grep -q 'bubblewrap' scripts/provision-final-ai.sh
           ! grep -q 'ollama pull qwen3:4b' scripts/provision-final-ai.sh

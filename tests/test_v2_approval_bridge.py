@@ -1,9 +1,11 @@
 import importlib.util
 import json
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "services"))
 SPEC = importlib.util.spec_from_file_location("qapproval_bridge", ROOT / "services" / "qapproval_bridge.py")
 assert SPEC and SPEC.loader
 qab = importlib.util.module_from_spec(SPEC)
@@ -81,4 +83,18 @@ def test_shell_has_non_decorative_authorization_sheet():
     assert "authorizationBridge.approve()" in sheet
     assert "authorizationBridge.reject()" in sheet
     assert "Voir les changements" in sheet
-    assert 'p->start(pythonExe(),{servicePath(),verb,plan,action})' in cpp
+    assert 'p->start("/usr/bin/pkexec",{privilegedHelper(),verb,plan,action})' in cpp
+    assert 'return "/usr/libexec/quantic-approval"' in cpp
+
+
+def test_production_approval_uses_a_fixed_polkit_helper():
+    helper = (ROOT / "services" / "qapproval_privileged.sh").read_text(encoding="utf-8")
+    policy_path = ROOT / "polkit" / "org.quantic.approval.policy"
+    policy = policy_path.read_text(encoding="utf-8")
+    ET.parse(policy_path)
+    assert "/usr/lib/quantic/services/qapproval_bridge.py" in helper
+    assert 'exec /usr/bin/python3' in helper
+    assert '<action id="org.quantic.approval">' in policy
+    assert "/usr/libexec/quantic-approval" in policy
+    assert "<allow_any>no</allow_any>" in policy
+    assert "<allow_inactive>no</allow_inactive>" in policy

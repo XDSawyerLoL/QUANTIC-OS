@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,7 @@ RUNTIME = Path("/run/quantic")
 MOUNT = Path("/run/quantic/persist")
 LABEL = os.environ.get("QUANTIC_PERSIST_LABEL", "QUANTIC-DATA")
 LAYOUT = ("models", "memory", "index", "skills", "connectors", "tasks", "simulations", "audit", "vault")
+NON_POSIX_FILESYSTEMS = {"vfat", "msdos", "exfat", "ntfs", "ntfs3", "fuseblk"}
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -51,19 +53,58 @@ def ensure_dirs() -> None:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     STATE.mkdir(parents=True, exist_ok=True)
     MOUNT.mkdir(parents=True, exist_ok=True)
+    # Ephemeral mode still needs the complete writable runtime layout before
+    # Ollama and the agent services start.
+    initialise_layout(STATE)
+
+
+def filesystem_type(dev: str) -> str:
+    p = run("blkid", "-o", "value", "-s", "TYPE", dev, check=False)
+    return p.stdout.strip().lower() if p.returncode == 0 else ""
+
+
+def mount_options(fs_type: str) -> str:
+    options = ["rw", "nosuid", "nodev", "noexec"]
+    if fs_type in NON_POSIX_FILESYSTEMS:
+        # Windows-prepared FAT/exFAT/NTFS volumes do not implement chmod or
+        # chown.  Their permissions must be supplied at mount time so the
+        # desktop companion and the dedicated Ollama user can both persist.
+        options.extend(("uid=0", "gid=0", "fmask=0000", "dmask=0000"))
+    return ",".join(options)
+
+
+def prepare_ollama_directory(durable: Path) -> None:
+    models = durable / "models" / "ollama"
+    models.mkdir(parents=True, exist_ok=True)
+    try:
+        account = pwd.getpwnam("ollama")
+    except KeyError:
+        return
+    try:
+        os.chown(models, account.pw_uid, account.pw_gid)
+        models.chmod(0o750)
+    except OSError:
+        # Non-POSIX media uses the explicit mount masks above instead.
+        pass
 
 
 def initialise_layout(durable: Path) -> None:
     for name in LAYOUT:
         (durable / name).mkdir(parents=True, exist_ok=True)
-    (durable / "models" / "ollama").mkdir(parents=True, exist_ok=True)
-    (durable / "users").mkdir(parents=True, exist_ok=True)
-    (durable / "users").chmod(0o1777)
+    prepare_ollama_directory(durable)
+    users = durable / "users"
+    users.mkdir(parents=True, exist_ok=True)
+    try:
+        users.chmod(0o1777)
+    except OSError:
+        # FAT/exFAT/NTFS permissions are defined by mount_options().
+        pass
 
 
 def mount_persistence(dev: str) -> bool:
+    fs_type = filesystem_type(dev)
     if run("mountpoint", "-q", str(MOUNT), check=False).returncode != 0:
-        p = run("mount", "-o", "rw,nosuid,nodev,noexec", dev, str(MOUNT), check=False)
+        p = run("mount", "-o", mount_options(fs_type), dev, str(MOUNT), check=False)
         if p.returncode != 0:
             return False
     durable = MOUNT / "quantic-state"

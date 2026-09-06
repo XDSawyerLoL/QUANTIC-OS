@@ -175,7 +175,7 @@ test -L "$VERIFY_MNT/etc/systemd/system/local-fs.target.wants/quantic-usb-safe.s
 sudo umount "$VERIFY_MNT"
 VERIFY_MOUNTED=0
 
-sha256sum "$OUT_ISO" > "$OUT_ISO.sha256"
+(cd "$OUT_DIR" && sha256sum "$(basename "$OUT_ISO")" > "$(basename "$OUT_ISO").sha256")
 
 echo '[8/8] Done'
 ls -lh "$OUT_ISO" "$OUT_ISO.sha256"

@@ -8,7 +8,12 @@ ConditionPathExists=/usr/bin/ollama
 Type=simple
 User=ollama
 Group=ollama
-ExecStartPre=/usr/bin/mkdir -p /var/lib/quantic/models/ollama
+# The '+' prefix keeps these setup operations privileged even though the main
+# process runs as the locked-down Ollama account.  chown is best-effort because
+# FAT/exFAT/NTFS ownership is supplied by Q-Persistence mount masks instead.
+ExecStartPre=+/usr/bin/mkdir -p /var/lib/quantic/models/ollama
+ExecStartPre=-+/usr/bin/chown ollama:ollama /var/lib/quantic/models/ollama
+ExecStartPre=/usr/bin/test -w /var/lib/quantic/models/ollama
 ExecStart=/usr/bin/ollama serve
 Restart=on-failure
 RestartSec=2
