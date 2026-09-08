@@ -179,6 +179,11 @@ class MemoryStore:
             age_days = max(0.0, now - float(row["updated_at"])) / 86400.0
             recency = 1.0 / (1.0 + age_days / 30.0)
             confidence = float(row["confidence"])
+            # Confidence and recency are ranking priors, not evidence that a
+            # memory answers the query.  Without lexical or vector relevance,
+            # a recent unrelated memory must not enter planner context.
+            if lexical <= 0.0 and semantic <= 0.0:
+                continue
             score = 0.48 * lexical + 0.32 * semantic + 0.12 * confidence + 0.08 * recency
             if score > 0.05:
                 scored.append((score, row))

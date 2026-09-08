@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 
 from services import qskills
-from services.qcontracts import MemoryRecord
+from services.qcontracts import MemoryRecord, Receipt
 from services.qlearning import (
     EvolutionStore,
     ProcedureStep,
@@ -12,6 +12,7 @@ from services.qlearning import (
     policy_review,
     promote,
 )
+from services.qmemory_capture import capture_receipt
 from services.qmemory2 import MemoryStore
 
 
@@ -49,6 +50,30 @@ def test_mines_only_repeated_successful_verified_patterns(tmp_path: Path) -> Non
     assert candidate.steps[0].reversible is True
     assert candidate.samples == 5
     assert candidate.success_rate == 0.8
+
+
+def test_default_runtime_receipts_feed_learning_namespace(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    try:
+        for i in range(3):
+            receipt = Receipt(
+                action_id=f"a{i}", goal_id=f"goal-{i}", ok=True, stage="complete",
+                evidence={"runtime": {"verification": {"passed": True}}},
+            )
+            record = capture_receipt(
+                receipt,
+                tool="files.copy",
+                arguments={"src": f"/tmp/{i}", "dst": "/tmp/out"},
+                capability="files.write",
+                reversible=True,
+                store=store,
+            )
+            assert record.namespace == "user:default"
+        candidates = mine_candidates(store=store, min_samples=3, min_success_rate=1.0)
+        assert [candidate.name for candidate in candidates] == ["learned-files-copy"]
+        assert candidates[0].samples == 3
+    finally:
+        store.close()
 
 
 def test_policy_review_never_grants_undeclared_authority() -> None:

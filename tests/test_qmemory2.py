@@ -37,6 +37,22 @@ def test_remember_and_recall_by_namespace(tmp_path):
         store.close()
 
 
+def test_unrelated_recent_memory_is_not_recalled(tmp_path):
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    try:
+        record = MemoryRecord(
+            namespace="user:default",
+            kind="semantic",
+            content={"key": "fruit", "value": "bananas"},
+            provenance={"source": "test"},
+            confidence=1.0,
+        )
+        store.remember(record)
+        assert store.recall("kernel", namespace="user:default") == []
+    finally:
+        store.close()
+
+
 def test_supersession_and_conflict_detection(tmp_path):
     store = MemoryStore(tmp_path / "memory.sqlite3")
     try:

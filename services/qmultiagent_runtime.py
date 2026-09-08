@@ -95,6 +95,9 @@ def execute_team(plan: DelegationPlan, tasks: list[dict[str,Any]], *, worker: Wo
                  max_retries_per_agent:int=1, verifier:Verifier|None=None) -> TeamReceipt:
     if len(tasks)!=len(plan.agents):
         raise ValueError("tasks_must_match_agents")
+    agent_names=[spec.name for spec in plan.agents]
+    if len(set(agent_names))!=len(agent_names):
+        raise ValueError("duplicate_agent_name")
     for spec in plan.agents:
         _validate_agent(spec,parent_capabilities=parent_capabilities,parent_risk_ceiling=parent_risk_ceiling)
 

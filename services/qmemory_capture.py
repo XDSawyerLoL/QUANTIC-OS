@@ -36,7 +36,10 @@ def capture_receipt(receipt: Receipt, *, tool: str, arguments: dict[str, Any], n
     """
     own_store = store is None
     store = store or MemoryStore()
-    ns = namespace or f"goal:{receipt.goal_id}"
+    # Runtime receipts must share the durable namespace mined by Q-Learning.
+    # Callers that need goal-local consolidation can still opt into a
+    # ``goal:<id>`` namespace explicitly.
+    ns = namespace or "user:default"
     runtime = receipt.evidence.get("runtime", {}) if isinstance(receipt.evidence, dict) else {}
     verification = runtime.get("verification", {}) if isinstance(runtime, dict) else {}
     content = {

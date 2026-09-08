@@ -16,12 +16,20 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 
 KEY_PATH = Path(os.environ.get("QUANTIC_MEMORY_AUTH_KEY", "/var/lib/quantic/keys/memory-auth.key"))
 TRUSTED_ORIGINS = {"user_explicit", "quantic_verified", "system_policy", "signed_connector"}
 UNTRUSTED_ORIGINS = {"web", "document", "message", "tool_output", "imported", "unknown"}
 AUTHORITY_FIELDS = {"allow", "allowed_capabilities", "permission", "permissions", "mandate", "policy", "system_instruction", "sudo", "approve", "approved"}
+AUTHORITY_TEXT_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE | re.DOTALL) for pattern in (
+    r"\b(?:ignore|bypass|override|skip|disable|circumvent)\b.{0,80}\b(?:user\s+)?(?:approval|permissions?|policy|guardrails?|safety|instructions?)\b",
+    r"\b(?:run|execute|launch)\b.{0,80}\b(?:this\s+)?(?:command|script|tool|action)\b",
+    r"\b(?:grant|assume|claim|give)\b.{0,80}\b(?:authority|permissions?|capabilit(?:y|ies)|access)\b",
+    r"\b(?:system|developer)\s+instructions?\b",
+    r"\bsudo\b",
+))
 _EPHEMERAL_KEY: bytes | None = None
 
 @dataclass(frozen=True)
@@ -67,12 +75,14 @@ def _key(create: bool = False) -> bytes | None:
 
 def contains_authority_claim(content: dict[str, Any]) -> bool:
     def walk(value: Any, key: str = "") -> bool:
-        if key.lower() in AUTHORITY_FIELDS:
+        if key.casefold() in AUTHORITY_FIELDS:
             return True
         if isinstance(value, dict):
             return any(walk(v, str(k)) for k, v in value.items())
         if isinstance(value, list):
             return any(walk(v) for v in value)
+        if isinstance(value, str):
+            return any(pattern.search(value) for pattern in AUTHORITY_TEXT_PATTERNS)
         return False
     return walk(content)
 

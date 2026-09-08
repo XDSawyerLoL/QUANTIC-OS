@@ -16,7 +16,10 @@ def test_verified_receipts_consolidate_into_procedure(tmp_path: Path):
                 action_id=f"a{i}", goal_id="g1", ok=True, stage="complete",
                 evidence={"runtime": {"verification": {"passed": True}}},
             )
-            capture_receipt(receipt, tool="filesystem.read", arguments={"path": "/tmp/x"}, store=store)
+            capture_receipt(
+                receipt, tool="filesystem.read", arguments={"path": "/tmp/x"},
+                namespace="goal:g1", store=store,
+            )
         result = consolidate(namespace="goal:g1", store=store, diary=tmp_path / "dream.jsonl")
         assert result.promoted == 1
         recalled = store.recall("procedure filesystem read", namespace="goal:g1", kinds=["procedural"])
@@ -58,7 +61,10 @@ def test_conflicting_outcomes_are_recorded_in_dream(tmp_path: Path):
                 evidence={"runtime": {"verification": {"passed": ok}}},
                 error=None if ok else "boom",
             )
-            capture_receipt(receipt, tool="browser.open", arguments={"url": "https://example.test"}, store=store)
+            capture_receipt(
+                receipt, tool="browser.open", arguments={"url": "https://example.test"},
+                namespace="goal:g2", store=store,
+            )
         result = consolidate(namespace="goal:g2", store=store, diary=tmp_path / "dream.jsonl")
         assert result.promoted == 1
         assert result.conflicts == 1

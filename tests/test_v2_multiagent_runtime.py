@@ -49,3 +49,21 @@ def test_child_cannot_expand_parent_authority():
         assert False
     except PermissionError:
         pass
+
+
+def test_duplicate_agent_names_are_rejected_before_execution():
+    plan=DelegationPlan([
+        AgentSpec("review","review-a",["read"],2,"low"),
+        AgentSpec("review","review-b",["read"],2,"low"),
+    ],True,2,"test")
+    calls=[]
+    try:
+        execute_team(
+            plan,[{"value":1},{"value":2}],
+            worker=lambda spec,task:calls.append((spec.name,task)) or {"ok":True},
+            parent_capabilities=["read"],
+        )
+        assert False
+    except ValueError as exc:
+        assert str(exc) == "duplicate_agent_name"
+    assert calls == []
