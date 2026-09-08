@@ -10,11 +10,35 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+
+PERSISTENCE_STATUS = Path("/run/quantic/persistence.json")
+PERSISTENT_USER_ROOT = Path("/var/lib/quantic/users")
+
+
+def state_directory(
+    *,
+    status_path: Path | None = None,
+    persistent_user_root: Path | None = None,
+) -> Path:
+    """Resolve the one companion state directory shared by daemon and UI."""
+    explicit = os.environ.get("QUANTIC_STATE")
+    if explicit:
+        return Path(explicit)
+    status_path = status_path or PERSISTENCE_STATUS
+    persistent_user_root = persistent_user_root or PERSISTENT_USER_ROOT
+    try:
+        data = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if data.get("mode") == "persistent":
+        return persistent_user_root / str(os.getuid())
+    return Path.home() / ".local/share/quantic"
 
 
 @dataclass

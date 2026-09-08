@@ -4,7 +4,11 @@
 A real Fedora KDE 44 Live USB session using Plasma 6 + Wayland for hardware/input/windowing and the Quantic Qt/QML surface for the product experience.
 
 ## Current gate
-This repository is build-pipeline-ready, not yet ISO-build-verified or hardware-certified. It contains RPM packaging, Fedora Live kickstart generation, Plasma theme, Quantic shell and GitHub Actions ISO pipeline.
+The Fedora remaster, Quantic Home compilation, final ISO generation and SHA-256
+verification have completed successfully in CI. Persistent release delivery is
+now handled with sub-2-GB GitHub prerelease assets and retry protection. The
+image is still not hardware-certified: the real HP Omen acceptance matrix below
+remains authoritative.
 
 The release may only be called `V1 Live Candidate` after all of the following are true on real hardware:
 
@@ -20,6 +24,6 @@ The release may only be called `V1 Live Candidate` after all of the following ar
 - [ ] companion runs unprivileged
 - [ ] Q-Core Bell + CHSH pass
 - [ ] Wine/Q-Bridge launches a representative Windows application
-- [ ] ISO checksum verified after artifact build
+- [x] ISO checksum verified after CI build
 
 Framebuffer UI is recovery-only and is not a release acceptance path.

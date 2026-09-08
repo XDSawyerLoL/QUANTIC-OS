@@ -3,11 +3,230 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Quantic.Home
+
 ApplicationWindow {
-    id: win; visible: true; visibility: Window.FullScreen; color: "#040811"; title: "Quantic OS"; property string currentPage: "Accueil"
-    Rectangle { anchors.fill: parent; gradient: Gradient { GradientStop { position: 0.0; color: "#030810" }; GradientStop { position: 0.42; color: "#07101F" }; GradientStop { position: 1.0; color: "#04070E" } } }
-    Rectangle { width: parent.width*0.62; height: parent.height*0.85; x: parent.width*0.20; y: parent.height*0.06; radius: height/2; color: "#151D4B88"; opacity: 0.14; layer.enabled: true; layer.effect: MultiEffect { blurEnabled: true; blur: 1; blurMax: 64 } }
-    StackLayout { id: pages; anchors.fill: parent; anchors.bottomMargin: Math.max(98,104*Math.min(width/1920,height/1080)); currentIndex: ["Accueil","Apps","Fichiers","Compagnon","Lab","Paramètres","Ressources"].indexOf(win.currentPage); HomePage{onNavigate:page=>win.currentPage=page}; AppsPage{}; FilesPage{}; CompanionPage{}; LabPage{}; SettingsPage{}; ResourcesPage{} }
-    GlassPanel { id:dock; width:650*Math.max(.82,Math.min(win.width/1920,win.height/1080)); height:92*Math.max(.82,Math.min(win.width/1920,win.height/1080)); anchors.horizontalCenter:parent.horizontalCenter;anchors.bottom:parent.bottom;anchors.bottomMargin:18;radius:24;Row{anchors.centerIn:parent;spacing:1;Repeater{model:[["Accueil","assets/icons/home.svg"],["Apps","assets/icons/apps.svg"],["Fichiers","assets/icons/folder.svg"],["Compagnon","assets/icons/companion.svg"],["Lab","assets/icons/lab.svg"],["Paramètres","assets/icons/settings.svg"]];DockButton{width:dock.width/6.25;height:dock.height-8;title:modelData[0];iconSource:modelData[1];selected:win.currentPage===modelData[0];onActivated:win.currentPage=modelData[0]}}} }
-    Rectangle { anchors.right:parent.right;anchors.bottom:parent.bottom;anchors.rightMargin:24;anchors.bottomMargin:22;width:248;height:56;radius:18;color:"#8D111824";border.color:"#34435B";Row{anchors.centerIn:parent;spacing:14;Image{source:"assets/icons/wifi.svg";width:19;height:19};Image{source:"assets/icons/speaker.svg";width:19;height:19};Text{text:backend.volumeText;color:"#C9D2E3";font.pixelSize:12};Text{id:clock;text:Qt.formatDateTime(new Date(),"HH:mm");color:"#F1F3F8";font.pixelSize:17};Text{text:"Q";color:"#796DFF";font.pixelSize:24;font.weight:Font.Bold}};Timer{interval:1000;running:true;repeat:true;onTriggered:clock.text=Qt.formatDateTime(new Date(),"HH:mm")} }
+    id: win
+    visible: true
+    visibility: Window.FullScreen
+    color: "#04070D"
+    title: "Quantic OS"
+
+    property string currentPage: "Accueil"
+    property string activeMission: backend.activeMission
+    property string companionState: companionBridge.state
+    property string lastCommand: ""
+    property string activeLayout: "focus"
+    property string lastSpokenResponse: ""
+    property bool companionWasBusy: false
+    property bool companionStreamHadDelta: false
+    property real uiScale: Math.max(0.82, Math.min(width / 1920, height / 1080))
+
+    Shortcut { sequence: "Meta+Space"; onActivated: qspace.open() }
+    Shortcut { sequence: "Meta+Q"; onActivated: { win.currentPage = "Compagnon" } }
+    Shortcut { sequence: "Meta+N"; onActivated: notifications.open() }
+    Shortcut { sequence: "Meta+S"; onActivated: qsnap.open() }
+
+    Timer {
+        interval: 1800
+        running: true
+        repeat: false
+        onTriggered: companionBridge.speak("Initialisation terminée. Quantic est prêt. Tous les services locaux disponibles sont opérationnels.")
+    }
+
+    Connections {
+        target: authorizationBridge
+        function onChanged() {
+            if (authorizationBridge.pending && !authorizationSheet.opened) {
+                authorizationSheet.open()
+                win.lastCommand = "Autorisation requise · " + (authorizationBridge.request.tool || "action système")
+            }
+            if (!authorizationBridge.pending && authorizationSheet.opened && !authorizationBridge.busy)
+                authorizationSheet.close()
+        }
+    }
+    Connections {
+        target: companionBridge
+        function onTranscriptReady(text) {
+            if (text && text.length > 0) {
+                win.lastCommand = "Voix · " + text
+                backend.askCompanion(text)
+                win.currentPage = "Compagnon"
+            }
+        }
+    }
+    Connections {
+        target: backend
+        function onCompanionChanged() {
+            if (backend.companionBusy) {
+                if (!win.companionWasBusy) {
+                    win.companionStreamHadDelta = false
+                    if (companionBridge.autoSpeak)
+                        companionBridge.beginStreamingSpeech()
+                }
+                win.companionWasBusy = true
+                return
+            }
+            if (win.companionWasBusy) {
+                win.companionWasBusy = false
+                win.lastSpokenResponse = backend.companionMessage || ""
+            }
+        }
+        function onCompanionDelta(text) {
+            if (!text || text.length === 0)
+                return
+            win.companionStreamHadDelta = true
+            if (companionBridge.autoSpeak)
+                companionBridge.pushStreamingText(text)
+        }
+        function onCompanionStreamFinished() {
+            if (!companionBridge.autoSpeak)
+                return
+            if (win.companionStreamHadDelta)
+                companionBridge.finishStreamingSpeech()
+            else {
+                var answer = backend.companionMessage || ""
+                if (answer.length > 0)
+                    companionBridge.speak(answer)
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#03070C" }
+            GradientStop { position: 0.46; color: "#07101B" }
+            GradientStop { position: 1.0; color: "#04070D" }
+        }
+    }
+
+    Rectangle {
+        width: parent.width * 0.64
+        height: parent.height * 0.72
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        radius: height / 2
+        color: "#243067"
+        opacity: 0.07
+        layer.enabled: true
+        layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 64 }
+    }
+
+    RowLayout {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: 28 * win.uiScale
+        anchors.topMargin: 22 * win.uiScale
+        spacing: 10 * win.uiScale
+        z: 20
+
+        Rectangle {
+            Layout.preferredWidth: 185 * win.uiScale
+            Layout.preferredHeight: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#A6121925"
+            border.color: "#2F3A4D"
+            Row {
+                anchors.centerIn: parent
+                spacing: 9 * win.uiScale
+                Rectangle { width: 8 * win.uiScale; height: width; radius: width / 2; color: "#8177FF" }
+                Text { text: win.activeMission; color: "#E8ECF5"; font.pixelSize: 13 * win.uiScale; font.weight: Font.Medium }
+                Text { text: "⌄"; color: "#7F8BA0"; font.pixelSize: 12 * win.uiScale }
+            }
+            MouseArea { anchors.fill: parent; onClicked: missionMenu.open() }
+            Menu {
+                id: missionMenu
+                y: parent.height + 6
+                MenuItem { text: "Quantic OS"; onTriggered: backend.setActiveMission(text) }
+                MenuItem { text: "Personnel"; onTriggered: backend.setActiveMission(text) }
+                MenuItem { text: "Création"; onTriggered: backend.setActiveMission(text) }
+                MenuSeparator { }
+                MenuItem { text: "Restaurer la Mission"; onTriggered: { win.lastCommand = "Restauration de la Mission · " + win.activeMission; backend.restoreActiveMission() } }
+                MenuItem { text: "Enregistrer la Mission"; onTriggered: { win.lastCommand = "Enregistrement de la Mission · " + win.activeMission; backend.rememberDesktopState() } }
+            }
+        }
+
+        Rectangle {
+            visible: win.lastCommand.length > 0
+            Layout.preferredWidth: Math.min(activityText.implicitWidth + 34 * win.uiScale, 510 * win.uiScale)
+            Layout.preferredHeight: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#A6121925"
+            border.color: "#2F3A4D"
+            Text { id: activityText; anchors.centerIn: parent; width: parent.width - 24 * win.uiScale; elide: Text.ElideRight; text: "● Quantic — " + win.lastCommand; color: "#ABB6C9"; font.pixelSize: 12 * win.uiScale }
+        }
+    }
+
+    Row {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: 26 * win.uiScale
+        anchors.topMargin: 22 * win.uiScale
+        spacing: 8 * win.uiScale
+        z: 25
+
+        Rectangle {
+            visible: authorizationBridge.pending
+            width: 44 * win.uiScale
+            height: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#36264D"
+            border.color: "#7A64B4"
+            Text { anchors.centerIn: parent; text: "!"; color: "#D6C5FF"; font.pixelSize: 15 * win.uiScale; font.bold: true }
+            MouseArea { anchors.fill: parent; onClicked: authorizationSheet.open() }
+        }
+
+        Rectangle {
+            visible: backend.windowBridgeStatus.length > 0
+            width: 205 * win.uiScale
+            height: 42 * win.uiScale
+            radius: 15 * win.uiScale
+            color: "#80121925"
+            border.color: "#293447"
+            Text { anchors.centerIn: parent; width: parent.width - 20 * win.uiScale; elide: Text.ElideRight; text: backend.windowBridgeStatus; color: "#8E9AAF"; font.pixelSize: 11 * win.uiScale }
+            MouseArea { anchors.fill: parent; onClicked: backend.refreshWindowBridge() }
+        }
+
+        Repeater {
+            model: [["▦","Q‑Snap"],["●","Notifications"],["⌁","Réglages"]]
+            delegate: Rectangle {
+                width: modelData[1] === "Réglages" ? 118 * win.uiScale : 46 * win.uiScale
+                height: 42 * win.uiScale
+                radius: 15 * win.uiScale
+                color: hover.containsMouse ? "#CC182131" : "#80121925"
+                border.color: hover.containsMouse ? "#4A5970" : "#293447"
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 7 * win.uiScale
+                    Text { text: modelData[0]; color: "#AAA2FF"; font.pixelSize: 13 * win.uiScale }
+                    Text { visible: modelData[1] === "Réglages"; text: Qt.formatDateTime(new Date(), "HH:mm"); color: "#D4DBE7"; font.pixelSize: 12 * win.uiScale }
+                }
+                MouseArea { id: hover; anchors.fill: parent; hoverEnabled: true; onClicked: { if (modelData[1] === "Q‑Snap") qsnap.open(); else if (modelData[1] === "Notifications") notifications.open(); else quickSettings.open() } }
+            }
+        }
+    }
+
+    StackLayout {
+        id: pages
+        anchors.fill: parent
+        anchors.topMargin: 66 * win.uiScale
+        anchors.bottomMargin: 94 * win.uiScale
+        currentIndex: ["Accueil", "Apps", "Fichiers", "Compagnon", "Lab", "Paramètres", "Ressources"].indexOf(win.currentPage)
+        HomePage { onNavigate: function(page) { win.currentPage = page } }
+        AppsPage { }
+        FilesPage { }
+        CompanionPage { }
+        LabPage { }
+        SettingsPage { }
+        ResourcesPage { }
+    }
+
+    QOrb { id: desktopOrb; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.rightMargin: 28 * win.uiScale; anchors.bottomMargin: 22 * win.uiScale; uiScale: 0.72 * win.uiScale; state: companionBridge.state; busy: backend.companionBusy; z: 58; onActivated: win.currentPage = "Compagnon"; onHoldVoice: companionBridge.listenOnce() }
+    QBar { id: qbar; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 18 * win.uiScale; uiScale: win.uiScale; currentPage: win.currentPage; z: 50; onNavigate: function(page) { win.currentPage = page }; onCommandCenter: qspace.open(); onCompanion: { win.currentPage = "Compagnon" } }
+    QSpace { id: qspace; uiScale: win.uiScale; onNavigate: function(page) { win.currentPage = page }; onRunPrompt: function(prompt) { win.lastCommand = prompt; backend.askCompanion(prompt); win.currentPage = "Compagnon" } }
+
+    QuickSettings { id: quickSettings; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100 }
+    NotificationCenter { id: notifications; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100 }
+    QSnap { id: qsnap; uiScale: win.uiScale; x: win.width - width - 26 * win.uiScale; y: 72 * win.uiScale; z: 100; onLayoutChosen: function(layoutId) { win.activeLayout = layoutId; win.lastCommand = "Disposition Q‑Snap · " + layoutId; backend.applyWindowLayout(layoutId) } }
+    AuthorizationSheet { id: authorizationSheet; uiScale: win.uiScale; x: Math.round((win.width - width) / 2); y: Math.round((win.height - height) / 2); z: 300 }
 }

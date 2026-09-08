@@ -1,0 +1,18 @@
+[Unit]
+Description=Quantic optional persistent state broker
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs-pre.target
+Before=local-fs.target quantic-core.target
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qpersistence.py
+RemainAfterExit=yes
+TimeoutStartSec=20
+NoNewPrivileges=no
+ProtectSystem=full
+ProtectHome=yes
+
+[Install]
+WantedBy=local-fs.target

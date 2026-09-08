@@ -1,4 +1,113 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import Quantic.Home
-Item{id:root;property real unit:Math.max(.8,Math.min(width/1920,height/1080));Text{x:54*unit;y:44*unit;text:"Compagnon";color:"white";font.pixelSize:36*unit;font.weight:Font.Light};Text{x:54*unit;y:94*unit;text:"Local par défaut. Mémoire locale. Actions système soumises aux permissions Quantic.";color:"#9EAAC0";font.pixelSize:14*unit};GlassPanel{x:54*unit;y:145*unit;width:Math.min(900*unit,root.width-108*unit);height:510*unit;Column{anchors.fill:parent;anchors.margins:26*unit;spacing:16*unit;Row{width:parent.width;Text{text:"Q";color:"#7B6DFF";font.pixelSize:28*unit;font.weight:Font.Bold};Text{text:"  "+backend.localAiStatus;color:"#B9C4D8";font.pixelSize:14*unit;anchors.verticalCenter:parent.verticalCenter}};Rectangle{width:parent.width;height:245*unit;radius:18*unit;color:"#A9182233";border.color:"#34445D";Text{anchors.fill:parent;anchors.margins:20*unit;text:backend.companionMessage;color:"#EDF1F8";wrapMode:Text.WordWrap;font.pixelSize:15*unit;lineHeight:1.35}};TextArea{id:input;width:parent.width;height:95*unit;placeholderText:"Parler à Quantic…";wrapMode:TextEdit.Wrap};Row{spacing:12*unit;Button{text:backend.companionBusy?"Réflexion…":"Envoyer";enabled:!backend.companionBusy&&input.text.trim().length>0;onClicked:{backend.askCompanion(input.text);input.clear()}};Button{text:"Analyser le système";onClicked:backend.optimize()}}}}}
+
+Item {
+    id: root
+    property real unit: Math.max(0.8, Math.min(width / 1920, height / 1080))
+
+    Text {
+        x: 54 * root.unit
+        y: 44 * root.unit
+        text: "Compagnon"
+        color: "white"
+        font.pixelSize: 36 * root.unit
+        font.weight: Font.Light
+    }
+
+    Text {
+        x: 54 * root.unit
+        y: 94 * root.unit
+        text: "Local par défaut. Français naturel. Écoute uniquement à la demande. Actions système soumises aux permissions Quantic."
+        color: "#9EAAC0"
+        font.pixelSize: 14 * root.unit
+    }
+
+    GlassPanel {
+        x: 54 * root.unit
+        y: 145 * root.unit
+        width: Math.min(980 * root.unit, root.width - 108 * root.unit)
+        height: 540 * root.unit
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 26 * root.unit
+            spacing: 16 * root.unit
+
+            RowLayout {
+                Layout.fillWidth: true
+                QOrb {
+                    uiScale: root.unit
+                    state: companionBridge.state
+                    busy: backend.companionBusy
+                    onActivated: input.forceActiveFocus()
+                    onHoldVoice: companionBridge.listenOnce()
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text { text: backend.localAiStatus; color: "#D8E0ED"; font.pixelSize: 14 * root.unit }
+                    Text { text: companionBridge.voiceStatus; color: "#8F9CB1"; font.pixelSize: 12 * root.unit }
+                    Text { text: "Moteur vocal · " + companionBridge.voiceEngine; color: "#6F7D92"; font.pixelSize: 11 * root.unit }
+                    Text {
+                        text: companionBridge.listening ? "Je t’écoute…" : companionBridge.state === "comprend" ? "Je comprends…" : companionBridge.speaking ? "Je te réponds…" : "Prêt"
+                        color: "#9C92FF"
+                        font.pixelSize: 12 * root.unit
+                    }
+                }
+                Switch {
+                    text: "Réponses vocales"
+                    checked: companionBridge.autoSpeak
+                    onToggled: companionBridge.setAutoSpeak(checked)
+                }
+                Button {
+                    text: companionBridge.listening ? "Écoute…" : "Micro"
+                    enabled: !companionBridge.listening
+                    onClicked: companionBridge.listenOnce()
+                }
+                Button {
+                    text: companionBridge.speaking ? "Stop" : "Lire"
+                    onClicked: companionBridge.speaking ? companionBridge.stopSpeaking() : companionBridge.speak(backend.companionMessage)
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 250 * root.unit
+                radius: 18 * root.unit
+                color: "#182233"
+                border.color: "#34445D"
+
+                Text {
+                    anchors.fill: parent
+                    anchors.margins: 20 * root.unit
+                    text: backend.companionMessage
+                    color: "#EDF1F8"
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: 15 * root.unit
+                    lineHeight: 1.35
+                }
+            }
+
+            TextArea {
+                id: input
+                Layout.fillWidth: true
+                Layout.preferredHeight: 92 * root.unit
+                placeholderText: companionBridge.lastTranscript.length > 0 ? companionBridge.lastTranscript : "Parler à Quantic…"
+                wrapMode: TextEdit.Wrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: backend.companionBusy ? "Réflexion…" : "Envoyer"
+                    enabled: !backend.companionBusy && input.text.trim().length > 0
+                    onClicked: { backend.askCompanion(input.text); input.clear() }
+                }
+                Button { text: "Analyser le système"; onClicked: backend.optimize() }
+                Item { Layout.fillWidth: true }
+                Text { text: "Maintiens le Q-Orb pour parler"; color: "#76849A"; font.pixelSize: 11 * root.unit }
+            }
+        }
+    }
+}

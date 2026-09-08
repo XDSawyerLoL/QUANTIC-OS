@@ -1,0 +1,9 @@
+[Unit]
+Description=Quantic OS core services
+Requires=quantic-usb-safe.service
+Wants=quantic-persistence.service quantic-health.service
+After=quantic-usb-safe.service quantic-persistence.service
+AllowIsolate=no
+
+[Install]
+WantedBy=multi-user.target
