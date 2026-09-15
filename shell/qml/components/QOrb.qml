@@ -19,8 +19,8 @@ Item {
         radius: width / 2
         color: "transparent"
         border.width: 2 * root.uiScale
-        border.color: root.state === "écoute" ? "#7FD8FF" : root.state === "parle" ? "#B5A0FF" : root.busy ? "#8F82FF" : "#4D5870"
-        opacity: root.state === "prêt" ? 0.55 : 0.95
+        border.color: root.state === "écoute" ? "#7FEAFF" : root.state === "parle" ? "#14B8A6" : root.busy ? "#00D9FF" : "#416677"
+        opacity: root.state === "prêt" ? 0.58 : 0.98
         scale: 1.0
         SequentialAnimation on scale {
             running: root.busy || root.state !== "prêt"
@@ -35,14 +35,15 @@ Item {
         height: width
         radius: width / 2
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#292455" }
-            GradientStop { position: 1.0; color: "#111725" }
+            GradientStop { position: 0.0; color: "#0B5262" }
+            GradientStop { position: 0.55; color: "#0A3046" }
+            GradientStop { position: 1.0; color: "#071827" }
         }
-        border.color: "#766BFF"
+        border.color: "#00D9FF"
         Text {
             anchors.centerIn: parent
             text: "Q"
-            color: "#F3F0FF"
+            color: "#F3FDFF"
             font.pixelSize: 25 * root.uiScale
             font.weight: Font.DemiBold
         }
