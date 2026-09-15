@@ -18,8 +18,8 @@ Item {
         Text {
             x: 0
             y: 0
-            text: "Q U A N T I C   H O M E"
-            color: "#EEF2FA"
+            text: "Q U A N T I C   O S"
+            color: "#EAFBFF"
             font.pixelSize: 17 * root.unit
             font.letterSpacing: 4 * root.unit
         }
@@ -28,33 +28,42 @@ Item {
             x: 0
             y: 68 * root.unit
             text: "Bonjour"
-            color: "#FCFDFF"
+            color: "#FCFEFF"
             font.pixelSize: 39 * root.unit
             font.weight: Font.Light
         }
 
+        Text {
+            x: 0
+            y: 113 * root.unit
+            text: "THE INTELLIGENCE LAYER"
+            color: "#7FEAFF"
+            font.pixelSize: 10.5 * root.unit
+            font.letterSpacing: 3.2 * root.unit
+        }
+
         Row {
             x: 0
-            y: 130 * root.unit
+            y: 150 * root.unit
             spacing: 10 * root.unit
 
             Rectangle {
                 width: 11 * root.unit
                 height: 11 * root.unit
                 radius: width / 2
-                color: "#42D990"
+                color: "#14B8A6"
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
                 text: backend.healthText
-                color: "#46D68D"
+                color: "#7DE7D9"
                 font.pixelSize: 16 * root.unit
             }
         }
 
         Row {
             x: 0
-            y: 183 * root.unit
+            y: 198 * root.unit
             spacing: 12 * root.unit
 
             MetricCard {
@@ -64,7 +73,7 @@ Item {
                 ratio: backend.cpu / 100
                 value: Math.round(backend.cpu) + " %"
                 history: backend.cpuHistory
-                accent: "#5A7DFF"
+                accent: "#00D9FF"
             }
             MetricCard {
                 width: 176 * root.unit
@@ -73,7 +82,7 @@ Item {
                 ratio: Math.max(0, backend.gpu) / 100
                 value: backend.gpuText
                 history: backend.gpuHistory
-                accent: "#8065FF"
+                accent: "#14B8A6"
             }
             MetricCard {
                 width: 176 * root.unit
@@ -82,7 +91,7 @@ Item {
                 ratio: backend.ramPercent / 100
                 value: backend.ramUsedGb.toFixed(1) + " / " + backend.ramTotalGb.toFixed(0) + " GB"
                 history: backend.ramHistory
-                accent: "#9767FF"
+                accent: "#7FEAFF"
             }
             GlassPanel {
                 width: 176 * root.unit
@@ -95,20 +104,20 @@ Item {
 
                     Text {
                         text: "Q-STATUS"
-                        color: "#D6DEEF"
+                        color: "#D9F4FA"
                         font.pixelSize: 15 * root.unit
                         font.weight: Font.DemiBold
                     }
                     Text {
                         text: backend.safeMode ? "Protégé ✓" : "Optimisé ✓"
-                        color: "#47DB91"
+                        color: "#68E1D1"
                         font.pixelSize: 20 * root.unit
                     }
                     Text {
                         text: backend.safeMode
                               ? "Live USB\nDisques internes protégés"
                               : "Système stable\nSurveillance active"
-                        color: "#AAB5CA"
+                        color: "#A6C1CB"
                         font.pixelSize: 12 * root.unit
                         lineHeight: 1.35
                     }
@@ -118,7 +127,7 @@ Item {
 
         GlassPanel {
             x: 0
-            y: 405 * root.unit
+            y: 420 * root.unit
             width: 720 * root.unit
             height: 135 * root.unit
 
@@ -131,13 +140,13 @@ Item {
                     width: 72 * root.unit
                     height: 72 * root.unit
                     radius: 18 * root.unit
-                    color: "#142238"
-                    border.color: "#566BFF"
+                    color: "#0B3144"
+                    border.color: "#00D9FF"
 
                     Text {
                         anchors.centerIn: parent
                         text: "✓"
-                        color: "#7286FF"
+                        color: "#7FEAFF"
                         font.pixelSize: 31 * root.unit
                     }
                 }
@@ -149,13 +158,13 @@ Item {
 
                     Text {
                         text: backend.activityTitle
-                        color: "#F4F6FB"
+                        color: "#F4FDFF"
                         font.pixelSize: 16 * root.unit
                         font.weight: Font.Medium
                     }
                     Text {
                         text: backend.activityDetail
-                        color: "#A9B4C8"
+                        color: "#A7C2CC"
                         font.pixelSize: 12.5 * root.unit
                         wrapMode: Text.WordWrap
                         width: parent.width
@@ -173,7 +182,7 @@ Item {
 
         GlassPanel {
             x: 0
-            y: 562 * root.unit
+            y: 577 * root.unit
             width: 340 * root.unit
             height: 80 * root.unit
 
@@ -186,12 +195,12 @@ Item {
                     width: 42 * root.unit
                     height: 42 * root.unit
                     radius: 12 * root.unit
-                    color: "#18233A"
+                    color: "#0B3144"
 
                     Text {
                         anchors.centerIn: parent
                         text: "◈"
-                        color: "#8C68FF"
+                        color: "#00D9FF"
                         font.pixelSize: 22 * root.unit
                     }
                 }
@@ -202,12 +211,12 @@ Item {
 
                     Text {
                         text: "Mode détecté : " + backend.workload
-                        color: "#E9EDF7"
+                        color: "#E9F8FB"
                         font.pixelSize: 14 * root.unit
                     }
                     Text {
                         text: "Optimisations sûres actives"
-                        color: "#97A5BC"
+                        color: "#94B6C0"
                         font.pixelSize: 11.5 * root.unit
                     }
                 }
@@ -242,7 +251,7 @@ Item {
 
                         Text {
                             text: "Compagnon"
-                            color: "#F5F7FC"
+                            color: "#F5FDFF"
                             font.pixelSize: 17 * root.unit
                             font.weight: Font.DemiBold
                         }
@@ -252,7 +261,7 @@ Item {
                         }
                         Text {
                             text: "Q"
-                            color: "#6E70FF"
+                            color: "#00D9FF"
                             font.pixelSize: 25 * root.unit
                             font.weight: Font.Bold
                         }
@@ -262,15 +271,15 @@ Item {
                         width: parent.width
                         height: 143 * root.unit
                         radius: 17 * root.unit
-                        color: "#1D2738"
+                        color: "#0B293B"
                         border.width: 1
-                        border.color: "#3A465A"
+                        border.color: "#31586A"
 
                         Text {
                             anchors.fill: parent
                             anchors.margins: 16 * root.unit
                             text: backend.companionMessage
-                            color: "#E8ECF5"
+                            color: "#E8F7FA"
                             wrapMode: Text.WordWrap
                             font.pixelSize: 13.5 * root.unit
                             lineHeight: 1.32
@@ -306,7 +315,7 @@ Item {
 
                         Text {
                             text: "Ressources"
-                            color: "#F5F7FC"
+                            color: "#F5FDFF"
                             font.pixelSize: 16 * root.unit
                             font.weight: Font.DemiBold
                         }
@@ -316,14 +325,14 @@ Item {
                         }
                         Text {
                             text: "Q-Resource Center"
-                            color: "#7389FF"
+                            color: "#00D9FF"
                             font.pixelSize: 11 * root.unit
                         }
                     }
 
                     Text {
                         text: "Quantic mesure les ressources en temps réel."
-                        color: "#9EAAC0"
+                        color: "#9DBAC4"
                         font.pixelSize: 11.5 * root.unit
                     }
                     ResourceRow {
@@ -331,21 +340,21 @@ Item {
                         label: "CPU"
                         value: Math.round(backend.cpu) + " %"
                         history: backend.cpuHistory
-                        accent: "#6382FF"
+                        accent: "#00D9FF"
                     }
                     ResourceRow {
                         width: parent.width
                         label: "GPU"
                         value: backend.gpuText
                         history: backend.gpuHistory
-                        accent: "#9A68FF"
+                        accent: "#14B8A6"
                     }
                     ResourceRow {
                         width: parent.width
                         label: "RAM"
                         value: backend.ramPercent.toFixed(0) + " %"
                         history: backend.ramHistory
-                        accent: "#5BD8E8"
+                        accent: "#7FEAFF"
                     }
                 }
             }
