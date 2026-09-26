@@ -77,7 +77,7 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None, role
     except Exception:
         pass
     if not model:
-        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé.")
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé. Prépare le volume USB QUANTIC-DATA ou installe un modèle local pour conserver un secours hors ligne.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, False), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
@@ -98,7 +98,7 @@ def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = Non
     except Exception:
         pass
     if not model:
-        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé.")
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé. Prépare le volume USB QUANTIC-DATA ou installe un modèle local pour conserver un secours hors ligne.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, True), headers={"Content-Type": "application/json"}, method="POST")
     chunks: list[str] = []
     try:
