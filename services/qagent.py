@@ -76,6 +76,8 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None, role
         return answer
     except Exception:
         pass
+    if not model:
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, False), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
@@ -95,6 +97,8 @@ def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = Non
         return answer
     except Exception:
         pass
+    if not model:
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, True), headers={"Content-Type": "application/json"}, method="POST")
     chunks: list[str] = []
     try:
@@ -135,9 +139,9 @@ def main() -> None:
     aura_register()
     model = args.model
     if model == "auto":
-        model = choose_model(args.role)
-        if not model:
-            raise SystemExit("Aucun modèle Ollama n'est installé. Prépare le volume USB QUANTIC-DATA puis copie un modèle Ollama existant ou installe-en un depuis la session Quantic.")
+        # AURA est le cerveau principal. L'absence d'Ollama ne doit plus bloquer
+        # Quantic OS tant qu'AURA locale peut répondre.
+        model = choose_model(args.role) or ""
 
     if args.prompt:
         prompt = " ".join(args.prompt)
