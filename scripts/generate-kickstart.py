@@ -11,5 +11,5 @@ for line in lines:
     if in_packages and line.strip()=='%end': in_packages=False
 if not inserted: raise SystemExit('No %packages section found in base KDE kickstart')
 out.insert(0,f'repo --name=quantic-local --baseurl=file://{Path(a.repo).resolve()} --cost=1')
-out += ['%post --erroronfail','set -eux','systemctl enable quantic-resource.service || true','systemctl enable quantic-usb-safe.service || true','cat >/etc/profile.d/quantic-live.sh <<\'EOF\'','export QUANTIC_LIVE=1','EOF','chmod 0644 /etc/profile.d/quantic-live.sh','%end']
+out += ['%post --erroronfail','set -eux','systemctl enable quantic-resource.service || true','systemctl enable quantic-usb-safe.service || true','systemctl enable quantic-aura-presence.service || true','cat >/etc/profile.d/quantic-live.sh <<\'EOF\'','export QUANTIC_LIVE=1','EOF','chmod 0644 /etc/profile.d/quantic-live.sh','%end']
 Path(a.out).write_text('\n'.join(out)+'\n')
