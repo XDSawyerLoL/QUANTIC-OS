@@ -53,18 +53,16 @@ def register() -> bool:
         "criticality": 0.94,
         "state": "online",
         "capabilities": ["system", "local-control", "agents", "sandbox", "desktop"],
-        "permissions": ["observe", "propose-change", "test", "canary"],
-        "surfaces": ["system", "desktop", "agents", "sandbox"],
-        "metadata": {
-            "writable_by_aura": True,
-            "modification_policy": "branch-test-canary-promote",
-            "bridge_version": BRIDGE_VERSION,
+        "writable_by_aura": True,
+        "modification_policy": "branch-test-canary-promote",
+        "bridge_version": BRIDGE_VERSION,
+        "runtime": {
             "local_aura": AURA_LOCAL_URL,
             "privacy": "operational-metadata-only",
         },
     }
     try:
-        _request(f"{AURA_CLOUD_URL}/api/aura/everywhere/register", payload, token=AURA_CLOUD_TOKEN)
+        _request(f"{AURA_CLOUD_URL}/api/aura/products/register", payload, token=AURA_CLOUD_TOKEN)
         return True
     except Exception:
         return False
@@ -75,7 +73,7 @@ def observe(state: str = "online", detail: str = "", metadata: dict[str, Any] | 
         return False
     try:
         _request(
-            f"{AURA_CLOUD_URL}/api/aura/everywhere/quantic-os/observe",
+            f"{AURA_CLOUD_URL}/api/aura/products/quantic-os/observe",
             {"state": state, "detail": detail, "metadata": metadata or {}},
             token=AURA_CLOUD_TOKEN,
         )
@@ -89,7 +87,7 @@ def event(kind: str, payload: dict[str, Any] | None = None) -> bool:
         return False
     try:
         _request(
-            f"{AURA_CLOUD_URL}/api/aura/everywhere/quantic-os/event",
+            f"{AURA_CLOUD_URL}/api/aura/products/quantic-os/event",
             {"type": kind, "payload": payload or {}},
             token=AURA_CLOUD_TOKEN,
         )
