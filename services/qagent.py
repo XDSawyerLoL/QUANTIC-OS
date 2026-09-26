@@ -23,6 +23,11 @@ try:
 except ImportError:
     from qcompanion import CompanionMemory, state_directory
 
+try:
+    from .aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+except ImportError:
+    from aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+
 SYSTEM = """Tu es Q-Agent, le compagnon local et l'agent système de Quantic OS.
 Réponds en français par défaut, sauf si l'utilisateur demande explicitement une autre langue.
 Ta façon de parler doit être naturelle, fluide, calme et directe, comme un véritable assistant personnel.
@@ -64,7 +69,15 @@ def _payload(model: str, prompt: str, memory_path: str | None, stream: bool) -> 
     }).encode("utf-8")
 
 
-def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> str:
+def ask(model: str, prompt: str, host: str, memory_path: str | None = None, role: str = "auto") -> str:
+    try:
+        answer = ask_local_aura(prompt, role=role, max_tokens=700)
+        aura_event("quantic.os.aura.reply", {"role": role, "answer_chars": len(answer)})
+        return answer
+    except Exception:
+        pass
+    if not model:
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé. Prépare le volume USB QUANTIC-DATA ou installe un modèle local pour conserver un secours hors ligne.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, False), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
@@ -74,8 +87,18 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> s
     return data.get("message", {}).get("content", "")
 
 
-def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = None, emit: Callable[[str], None] | None = None) -> str:
-    """Stream Ollama chunks. Each emitted value is already-safe assistant text."""
+def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = None, emit: Callable[[str], None] | None = None, role: str = "auto") -> str:
+    """Prefer AURA; fall back to streaming local Ollama when AURA is unavailable."""
+    try:
+        answer = ask_local_aura(prompt, role=role, max_tokens=700)
+        if emit is not None and answer:
+            emit(answer)
+        aura_event("quantic.os.aura.reply", {"role": role, "answer_chars": len(answer)})
+        return answer
+    except Exception:
+        pass
+    if not model:
+        raise SystemExit("AURA locale est indisponible et aucun modèle Ollama local n'est installé. Prépare le volume USB QUANTIC-DATA ou installe un modèle local pour conserver un secours hors ligne.")
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, True), headers={"Content-Type": "application/json"}, method="POST")
     chunks: list[str] = []
     try:
@@ -113,19 +136,20 @@ def main() -> None:
     parser.add_argument("prompt", nargs="*")
     args = parser.parse_args()
 
+    aura_register()
     model = args.model
     if model == "auto":
-        model = choose_model(args.role)
-        if not model:
-            raise SystemExit("Aucun modèle Ollama n'est installé. Prépare le volume USB QUANTIC-DATA puis copie un modèle Ollama existant ou installe-en un depuis la session Quantic.")
+        # AURA est le cerveau principal. L'absence d'Ollama ne doit plus bloquer
+        # Quantic OS tant qu'AURA locale peut répondre.
+        model = choose_model(args.role) or ""
 
     if args.prompt:
         prompt = " ".join(args.prompt)
         if args.stream_ndjson:
-            stream_ask(model, prompt, args.host, args.memory, _ndjson_chunk)
+            stream_ask(model, prompt, args.host, args.memory, _ndjson_chunk, role=args.role)
             print(json.dumps({"type": "done"}, separators=(",", ":")), flush=True)
         else:
-            print(ask(model, prompt, args.host, args.memory))
+            print(ask(model, prompt, args.host, args.memory, role=args.role))
         return
 
     print(f"Q-Agent — modèle local={model}. Tape /quit pour quitter.")
@@ -138,7 +162,7 @@ def main() -> None:
         if line in {"/quit", "/exit"}:
             break
         if line:
-            print(ask(model, line, args.host, args.memory))
+            print(ask(model, line, args.host, args.memory, role=args.role))
 
 
 if __name__ == "__main__":
