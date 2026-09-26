@@ -23,6 +23,11 @@ try:
 except ImportError:
     from qcompanion import CompanionMemory, state_directory
 
+try:
+    from .aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+except ImportError:
+    from aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+
 SYSTEM = """Tu es Q-Agent, le compagnon local et l'agent système de Quantic OS.
 Réponds en français par défaut, sauf si l'utilisateur demande explicitement une autre langue.
 Ta façon de parler doit être naturelle, fluide, calme et directe, comme un véritable assistant personnel.
@@ -64,7 +69,13 @@ def _payload(model: str, prompt: str, memory_path: str | None, stream: bool) -> 
     }).encode("utf-8")
 
 
-def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> str:
+def ask(model: str, prompt: str, host: str, memory_path: str | None = None, role: str = "auto") -> str:
+    try:
+        answer = ask_local_aura(prompt, role=role, max_tokens=700)
+        aura_event("quantic.os.aura.reply", {"role": role, "answer_chars": len(answer)})
+        return answer
+    except Exception:
+        pass
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, False), headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
@@ -74,8 +85,16 @@ def ask(model: str, prompt: str, host: str, memory_path: str | None = None) -> s
     return data.get("message", {}).get("content", "")
 
 
-def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = None, emit: Callable[[str], None] | None = None) -> str:
-    """Stream Ollama chunks. Each emitted value is already-safe assistant text."""
+def stream_ask(model: str, prompt: str, host: str, memory_path: str | None = None, emit: Callable[[str], None] | None = None, role: str = "auto") -> str:
+    """Prefer AURA; fall back to streaming local Ollama when AURA is unavailable."""
+    try:
+        answer = ask_local_aura(prompt, role=role, max_tokens=700)
+        if emit is not None and answer:
+            emit(answer)
+        aura_event("quantic.os.aura.reply", {"role": role, "answer_chars": len(answer)})
+        return answer
+    except Exception:
+        pass
     req = urllib.request.Request(host.rstrip("/") + "/api/chat", data=_payload(model, prompt, memory_path, True), headers={"Content-Type": "application/json"}, method="POST")
     chunks: list[str] = []
     try:
@@ -113,6 +132,7 @@ def main() -> None:
     parser.add_argument("prompt", nargs="*")
     args = parser.parse_args()
 
+    aura_register()
     model = args.model
     if model == "auto":
         model = choose_model(args.role)
@@ -122,10 +142,10 @@ def main() -> None:
     if args.prompt:
         prompt = " ".join(args.prompt)
         if args.stream_ndjson:
-            stream_ask(model, prompt, args.host, args.memory, _ndjson_chunk)
+            stream_ask(model, prompt, args.host, args.memory, _ndjson_chunk, role=args.role)
             print(json.dumps({"type": "done"}, separators=(",", ":")), flush=True)
         else:
-            print(ask(model, prompt, args.host, args.memory))
+            print(ask(model, prompt, args.host, args.memory, role=args.role))
         return
 
     print(f"Q-Agent — modèle local={model}. Tape /quit pour quitter.")
@@ -138,7 +158,7 @@ def main() -> None:
         if line in {"/quit", "/exit"}:
             break
         if line:
-            print(ask(model, line, args.host, args.memory))
+            print(ask(model, line, args.host, args.memory, role=args.role))
 
 
 if __name__ == "__main__":
