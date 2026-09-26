@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.error
 import urllib.request
 from typing import Any
@@ -55,7 +56,10 @@ def register() -> bool:
         "writable_by_aura": True,
         "modification_policy": "branch-test-canary-promote",
         "bridge_version": BRIDGE_VERSION,
-        "runtime": {"local_aura": AURA_LOCAL_URL},
+        "runtime": {
+            "local_aura": AURA_LOCAL_URL,
+            "privacy": "operational-metadata-only",
+        },
     }
     try:
         _request(f"{AURA_CLOUD_URL}/api/aura/products/register", payload, token=AURA_CLOUD_TOKEN)
@@ -90,6 +94,45 @@ def event(kind: str, payload: dict[str, Any] | None = None) -> bool:
         return True
     except Exception:
         return False
+
+
+_HEARTBEAT_STOP = threading.Event()
+_HEARTBEAT_THREAD: threading.Thread | None = None
+
+
+def _heartbeat_loop() -> None:
+    register()
+    observe("online", "Quantic OS / Q-Agent actif.", {
+        "bridge_version": BRIDGE_VERSION,
+        "local_first": True,
+    })
+    while not _HEARTBEAT_STOP.wait(120):
+        observe("online", "Quantic OS / Q-Agent actif.", {
+            "bridge_version": BRIDGE_VERSION,
+            "local_first": True,
+        })
+
+
+def start_heartbeat() -> None:
+    global _HEARTBEAT_THREAD
+    if not AURA_CLOUD_TOKEN or _HEARTBEAT_THREAD is not None:
+        return
+    _HEARTBEAT_STOP.clear()
+    _HEARTBEAT_THREAD = threading.Thread(
+        target=_heartbeat_loop,
+        name="aura-everywhere-heartbeat",
+        daemon=True,
+    )
+    _HEARTBEAT_THREAD.start()
+
+
+def stop_heartbeat() -> None:
+    global _HEARTBEAT_THREAD
+    if _HEARTBEAT_THREAD is None:
+        return
+    _HEARTBEAT_STOP.set()
+    _HEARTBEAT_THREAD.join(timeout=1)
+    _HEARTBEAT_THREAD = None
 
 
 def ask_local_aura(prompt: str, *, role: str = "auto", max_tokens: int = 700) -> str:

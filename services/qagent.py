@@ -24,9 +24,9 @@ except ImportError:
     from qcompanion import CompanionMemory, state_directory
 
 try:
-    from .aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+    from .aura_bridge import ask_local_aura, event as aura_event, register as aura_register, start_heartbeat as aura_start_heartbeat
 except ImportError:
-    from aura_bridge import ask_local_aura, event as aura_event, register as aura_register
+    from aura_bridge import ask_local_aura, event as aura_event, register as aura_register, start_heartbeat as aura_start_heartbeat
 
 SYSTEM = """Tu es Q-Agent, le compagnon local et l'agent système de Quantic OS.
 Réponds en français par défaut, sauf si l'utilisateur demande explicitement une autre langue.
@@ -137,6 +137,7 @@ def main() -> None:
     args = parser.parse_args()
 
     aura_register()
+    aura_start_heartbeat()
     model = args.model
     if model == "auto":
         # AURA est le cerveau principal. L'absence d'Ollama ne doit plus bloquer
