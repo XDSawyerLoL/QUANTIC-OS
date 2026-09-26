@@ -13,6 +13,7 @@ from pathlib import Path
 
 from qcompanion import CompanionMemory, CompanionEngine, state_directory
 from qresource import snapshot, plan
+from aura_bridge import start_heartbeat as aura_start_heartbeat, stop_heartbeat as aura_stop_heartbeat
 
 PERSISTENCE_STATUS = Path("/run/quantic/persistence.json")
 PERSISTENT_USER_ROOT = Path("/var/lib/quantic/users")
@@ -61,27 +62,31 @@ def main() -> None:
     engine = CompanionEngine(mem, cooldown_s=1800)
     mem.remember("companion:state_path", str(state))
     mem.remember("companion:started_at", int(time.time()))
+    aura_start_heartbeat()
 
-    while True:
-        s = snapshot()
-        p = plan(s)
-        if s.ram_percent >= 85:
-            item = engine.consider({
-                "type": "resource_pressure",
-                "resource": "mémoire",
-                "severity": s.ram_percent / 100,
+    try:
+        while True:
+            s = snapshot()
+            p = plan(s)
+            if s.ram_percent >= 85:
+                item = engine.consider({
+                    "type": "resource_pressure",
+                    "resource": "mémoire",
+                    "severity": s.ram_percent / 100,
+                })
+                if item:
+                    atomic_json(state / "last-initiative.json", item.__dict__)
+            mem.remember("session:last_resource_plan", p.__dict__)
+            atomic_json(state / "heartbeat.json", {
+                "time": int(time.time()),
+                "workload": p.workload,
+                "objective": p.objective,
+                "persistent": state == PERSISTENT_USER_ROOT or PERSISTENT_USER_ROOT in state.parents,
             })
-            if item:
-                atomic_json(state / "last-initiative.json", item.__dict__)
-        mem.remember("session:last_resource_plan", p.__dict__)
-        atomic_json(state / "heartbeat.json", {
-            "time": int(time.time()),
-            "workload": p.workload,
-            "objective": p.objective,
-            "persistent": state == PERSISTENT_USER_ROOT or PERSISTENT_USER_ROOT in state.parents,
-        })
-        consume_inbox(engine, state)
-        time.sleep(20)
+                consume_inbox(engine, state)
+                time.sleep(20)
+    finally:
+        aura_stop_heartbeat()
 
 
 if __name__ == "__main__":
