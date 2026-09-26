@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.error
 import urllib.request
 from typing import Any
@@ -52,13 +53,18 @@ def register() -> bool:
         "criticality": 0.94,
         "state": "online",
         "capabilities": ["system", "local-control", "agents", "sandbox", "desktop"],
-        "writable_by_aura": True,
-        "modification_policy": "branch-test-canary-promote",
-        "bridge_version": BRIDGE_VERSION,
-        "runtime": {"local_aura": AURA_LOCAL_URL},
+        "permissions": ["observe", "propose-change", "test", "canary"],
+        "surfaces": ["system", "desktop", "agents", "sandbox"],
+        "metadata": {
+            "writable_by_aura": True,
+            "modification_policy": "branch-test-canary-promote",
+            "bridge_version": BRIDGE_VERSION,
+            "local_aura": AURA_LOCAL_URL,
+            "privacy": "operational-metadata-only",
+        },
     }
     try:
-        _request(f"{AURA_CLOUD_URL}/api/aura/products/register", payload, token=AURA_CLOUD_TOKEN)
+        _request(f"{AURA_CLOUD_URL}/api/aura/everywhere/register", payload, token=AURA_CLOUD_TOKEN)
         return True
     except Exception:
         return False
@@ -69,7 +75,7 @@ def observe(state: str = "online", detail: str = "", metadata: dict[str, Any] | 
         return False
     try:
         _request(
-            f"{AURA_CLOUD_URL}/api/aura/products/quantic-os/observe",
+            f"{AURA_CLOUD_URL}/api/aura/everywhere/quantic-os/observe",
             {"state": state, "detail": detail, "metadata": metadata or {}},
             token=AURA_CLOUD_TOKEN,
         )
@@ -83,13 +89,48 @@ def event(kind: str, payload: dict[str, Any] | None = None) -> bool:
         return False
     try:
         _request(
-            f"{AURA_CLOUD_URL}/api/aura/products/quantic-os/event",
+            f"{AURA_CLOUD_URL}/api/aura/everywhere/quantic-os/event",
             {"type": kind, "payload": payload or {}},
             token=AURA_CLOUD_TOKEN,
         )
         return True
     except Exception:
         return False
+
+
+_HEARTBEAT_STOP = threading.Event()
+_HEARTBEAT_THREAD: threading.Thread | None = None
+
+
+def _heartbeat_loop() -> None:
+    register()
+    while not _HEARTBEAT_STOP.wait(120):
+        observe("online", "Quantic OS / Q-Agent actif.", {
+            "bridge_version": BRIDGE_VERSION,
+            "local_first": True,
+        })
+
+
+def start_heartbeat() -> None:
+    global _HEARTBEAT_THREAD
+    if not AURA_CLOUD_TOKEN or _HEARTBEAT_THREAD is not None:
+        return
+    _HEARTBEAT_STOP.clear()
+    _HEARTBEAT_THREAD = threading.Thread(
+        target=_heartbeat_loop,
+        name="aura-everywhere-heartbeat",
+        daemon=True,
+    )
+    _HEARTBEAT_THREAD.start()
+
+
+def stop_heartbeat() -> None:
+    global _HEARTBEAT_THREAD
+    if _HEARTBEAT_THREAD is None:
+        return
+    _HEARTBEAT_STOP.set()
+    _HEARTBEAT_THREAD.join(timeout=1)
+    _HEARTBEAT_THREAD = None
 
 
 def ask_local_aura(prompt: str, *, role: str = "auto", max_tokens: int = 700) -> str:
