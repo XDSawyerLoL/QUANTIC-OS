@@ -102,6 +102,10 @@ _HEARTBEAT_THREAD: threading.Thread | None = None
 
 def _heartbeat_loop() -> None:
     register()
+    observe("online", "Quantic OS / Q-Agent actif.", {
+        "bridge_version": BRIDGE_VERSION,
+        "local_first": True,
+    })
     while not _HEARTBEAT_STOP.wait(120):
         observe("online", "Quantic OS / Q-Agent actif.", {
             "bridge_version": BRIDGE_VERSION,
