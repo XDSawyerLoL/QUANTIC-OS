@@ -83,8 +83,8 @@ def main() -> None:
                 "objective": p.objective,
                 "persistent": state == PERSISTENT_USER_ROOT or PERSISTENT_USER_ROOT in state.parents,
             })
-                consume_inbox(engine, state)
-                time.sleep(20)
+            consume_inbox(engine, state)
+            time.sleep(20)
     finally:
         aura_stop_heartbeat()
 
