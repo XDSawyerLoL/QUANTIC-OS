@@ -22,7 +22,7 @@ def test_qbar_is_floating_and_exposes_core_actions():
     assert "radius: height / 2" in qbar
     assert "signal commandCenter()" in qbar
     assert "signal companion()" in qbar
-    assert 'text: "● Quantic prêt"' in qbar
+    assert 'text: "● Quantic OS prêt"' in qbar
 
 
 def test_qspace_is_universal_command_surface():
