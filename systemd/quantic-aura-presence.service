@@ -1,0 +1,25 @@
+[Unit]
+Description=Quantic OS AURA Everywhere presence
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/quantic/services/qaura_presence.py
+Restart=on-failure
+RestartSec=15
+EnvironmentFile=-/etc/quantic/aura.env
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
