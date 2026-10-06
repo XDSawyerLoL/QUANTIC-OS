@@ -19,8 +19,13 @@ AURA_CLOUD_URL = os.environ.get(
     "AURA_CLOUD_URL",
     "https://antiquewhite-dolphin-780448.hostingersite.com",
 ).rstrip("/")
-AURA_CLOUD_TOKEN = os.environ.get("AURA_CLOUD_TOKEN", "").strip()
-BRIDGE_VERSION = "aura-universal-bridge-v1"
+LEGACY_ALLOWED = os.environ.get("AURA_ALLOW_LEGACY_PRODUCT_ADMIN_TOKEN", "").strip().lower() in {"1", "true", "yes", "oui", "on"}
+AURA_CLOUD_TOKEN = (
+    os.environ.get("AURA_QUANTIC_OS_TOKEN", "").strip()
+    or os.environ.get("AURA_PRODUCT_TOKEN_QUANTIC_OS", "").strip()
+    or (os.environ.get("AURA_CLOUD_TOKEN", "").strip() if LEGACY_ALLOWED else "")
+)
+BRIDGE_VERSION = "aura-universal-bridge-v2-scoped"
 
 
 def _request(url: str, payload: dict[str, Any], *, token: str = "", timeout: int = 8) -> dict[str, Any]:
